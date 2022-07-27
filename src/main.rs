@@ -1,4 +1,4 @@
-mod grid;
+mod editor;
 
 use bevy::prelude::*;
 
@@ -6,7 +6,7 @@ fn main() {
     App::new()
         .insert_resource(ClearColor(Color::rgb(0.125, 0.1, 0.15)))
         .add_plugins(DefaultPlugins)
-        .add_plugin(grid::GridPlugin)
+        .add_plugin(editor::grid::GridPlugin)
         .add_startup_system(setup)
         .add_system(bevy::input::system::exit_on_esc_system)
         .run();

@@ -38,10 +38,10 @@ pub fn run(sender: Sender<crate::frontend::Message>) -> Result<()> {
 fn load_file(sender: &Sender<crate::frontend::Message>) -> Result<()> {
     let Args { input: path } = Args::parse();
 
-    let input = std::fs::read_to_string(&path)
+    let content = std::fs::read_to_string(&path)
         .map_err(|_| Error::FileError(FileError::FileNotFound(path)))?;
 
-    sender.send(frontend::Message::Load(input))?;
+    sender.send(frontend::Message::Load(content))?;
 
     Ok(())
 }

@@ -99,11 +99,12 @@ fn main_loop(window: &Window, receiver: &Receiver<Message>) -> Result<()> {
 fn print_error(window: &Window, msg: impl ToString) {
     set_color(&window, RED_PAIR, true, true);
     window.mv(window.get_max_y() - 1, 0);
-    window.printw(
-        format!("{}", msg.to_string())
-            .as_str()
-            .truncate_ellipse((window.get_max_x() - 3) as usize),
-    );
+    let msg = msg.to_string();
+    let trunc_msg = msg
+        .as_str()
+        .truncate_ellipse((window.get_max_x() - 3) as usize);
+
+    window.printw(trunc_msg);
 }
 
 fn wait_for_exit(window: &Window) {

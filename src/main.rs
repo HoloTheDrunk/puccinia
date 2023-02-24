@@ -7,7 +7,7 @@ use std::{sync::mpsc, thread::JoinHandle};
 use anyhow::bail;
 use clap::Parser;
 
-use {anyhow::Result, pancurses::endwin};
+use anyhow::Result;
 
 #[derive(Parser)]
 /// Minesweeper TUI editor and runner
@@ -24,15 +24,12 @@ fn main() -> Result<()> {
     let handler = std::thread::spawn(move || logic::run(args, sender));
 
     if let Err(err) = frontend::run(receiver) {
-        endwin();
         join_handler(handler)?;
         std::fs::write("log", format!("{err:?}"))?;
         bail!("{err:?}");
     }
 
     join_handler(handler)?;
-
-    endwin();
 
     Ok(())
 }

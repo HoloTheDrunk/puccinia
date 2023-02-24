@@ -19,11 +19,12 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let (sender, receiver) = mpsc::channel();
+    let (frontend_sender, frontend_receiver) = mpsc::channel();
+    let (logic_sender, logic_receiver) = mpsc::channel();
 
-    let handler = std::thread::spawn(move || logic::run(args, sender));
+    let handler = std::thread::spawn(move || logic::run(args, frontend_sender, logic_receiver));
 
-    if let Err(err) = frontend::run(receiver) {
+    if let Err(err) = frontend::run(frontend_receiver, logic_sender) {
         join_handler(handler)?;
         bail!("{err}");
     }

@@ -1,4 +1,7 @@
-use std::{sync::mpsc::Sender, time::Duration};
+use std::{
+    sync::mpsc::{Receiver, Sender},
+    time::Duration,
+};
 
 use crate::{frontend, Args};
 
@@ -16,9 +19,24 @@ pub enum FileError {
     FileNotFound(String),
 }
 
+#[derive(Debug)]
+#[allow(unused)]
+pub enum Message {
+    /// Synchronize grid status with frontend
+    Resync,
+    /// Set value at pos
+    Set { x: usize, y: usize, v: char },
+    /// Get value at pos
+    Get { x: usize, y: usize },
+}
+
 type Result<T> = anyhow::Result<T>;
 
-pub(crate) fn run(args: Args, sender: Sender<crate::frontend::Message>) -> Result<()> {
+pub(crate) fn run(
+    args: Args,
+    sender: Sender<crate::frontend::Message>,
+    receiver: Receiver<Message>,
+) -> Result<()> {
     if let Err(err) = load_file(args.input.as_str(), &sender) {
         sender.send(frontend::Message::LogicFail(Some(err.to_string())))?;
     }

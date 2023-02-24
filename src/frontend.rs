@@ -1,6 +1,6 @@
 use std::{
     io::Stdout,
-    sync::mpsc::{self, Receiver, TryRecvError},
+    sync::mpsc::{self, Receiver, Sender, TryRecvError},
     thread,
     time::{Duration, Instant},
 };
@@ -50,7 +50,7 @@ struct State {
 enum EditorMode {
     #[default]
     Normal,
-    Input,
+    Insert,
 }
 
 #[derive(Clone, Debug)]
@@ -69,23 +69,30 @@ pub enum Message {
     PopupToggle(Tooltip),
 }
 
-pub(crate) fn run(receiver: Receiver<Message>) -> Result<()> {
+pub(crate) fn run(
+    receiver: Receiver<Message>,
+    sender: Sender<crate::logic::Message>,
+) -> Result<()> {
     let mut terminal = setup_terminal().map_err(|err| Error::Terminal(err))?;
 
-    let res = wrapper(&mut terminal, receiver);
+    let res = wrapper(&mut terminal, receiver, sender);
 
     restore_terminal(terminal).map_err(|err| Error::Terminal(err))?;
 
     res
 }
 
-fn wrapper<B: Backend>(terminal: &mut Terminal<B>, receiver: Receiver<Message>) -> Result<()> {
+fn wrapper<B: Backend>(
+    terminal: &mut Terminal<B>,
+    receiver: Receiver<Message>,
+    sender: Sender<crate::logic::Message>,
+) -> Result<()> {
     let mut state = State {
         grid: Grid::new(10, 10),
         ..Default::default()
     };
 
-    main_loop(terminal, &mut state, &receiver)?;
+    main_loop(terminal, &mut state, &receiver, &sender)?;
 
     wait_for_exit().map_err(|err| Error::Terminal(err))?;
 
@@ -121,6 +128,7 @@ fn main_loop<B: Backend>(
     terminal: &mut Terminal<B>,
     state: &mut State,
     receiver: &Receiver<Message>,
+    sender: &Sender<crate::logic::Message>,
 ) -> Result<()> {
     let mut stop: bool;
     let mut last_frame = Instant::now();
@@ -128,24 +136,22 @@ fn main_loop<B: Backend>(
     loop {
         let now = Instant::now();
         let delta = now.duration_since(last_frame);
-        last_frame = now;
 
         stop = handle_events(state)?;
 
         try_receive_message(state, receiver)?;
 
-        terminal
-            .draw(|f| {
-                ui(f, state);
-            })
-            .map_err(|err| Error::Terminal(err))?;
+        if delta > Duration::from_millis(80) {
+            last_frame = now;
+            terminal
+                .draw(|f| {
+                    ui(f, state);
+                })
+                .map_err(|err| Error::Terminal(err))?;
+        }
 
         if stop {
             break;
-        }
-
-        if delta < Duration::from_millis(80) {
-            std::thread::sleep(Duration::from_millis(80) - delta);
         }
     }
 
@@ -190,29 +196,55 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
 fn handle_events(state: &mut State) -> Result<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
-            Ok(Event::Key(KeyEvent { code, .. })) => match code {
-                KeyCode::Char('q') => {
-                    state.tooltip = Some(Tooltip::Error("Press 'q' to exit".to_owned()));
-                    return Ok(true);
+            Ok(Event::Key(KeyEvent { code, .. })) => match state.mode {
+                EditorMode::Normal => return handle_events_normal_mode(code, state),
+                EditorMode::Insert => {
+                    handle_events_insert_mode(code, state);
                 }
-                KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
-                    if let Err(err) = match c {
-                        'h' => state.grid.move_cursor(-1, 0),
-                        'j' => state.grid.move_cursor(0, 1),
-                        'k' => state.grid.move_cursor(0, -1),
-                        'l' => state.grid.move_cursor(1, 0),
-                        _ => unreachable!(),
-                    } {
-                        state.tooltip = Some(Tooltip::Error(format!(
-                            "Invalid move (out of bounds): {err:?}"
-                        )));
-                    }
-                }
-                _ => todo!(),
             },
             Err(err) => return Err(Error::Terminal(err)),
             _ => (),
         }
+    }
+
+    Ok(false)
+}
+
+fn handle_events_insert_mode(code: KeyCode, state: &mut State) {
+    match code {
+        KeyCode::Char(c) => {
+            state.grid.set_current(c);
+        }
+        KeyCode::Esc => {
+            state.mode = EditorMode::Normal;
+        }
+        _ => todo!(),
+    }
+}
+
+fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
+    match code {
+        KeyCode::Char('q') => {
+            state.tooltip = Some(Tooltip::Error("Press 'q' to exit".to_owned()));
+            return Ok(true);
+        }
+        KeyCode::Char('i') => {
+            state.mode = EditorMode::Insert;
+        }
+        KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
+            if let Err(err) = match c {
+                'h' => state.grid.move_cursor(-1, 0),
+                'j' => state.grid.move_cursor(0, 1),
+                'k' => state.grid.move_cursor(0, -1),
+                'l' => state.grid.move_cursor(1, 0),
+                _ => unreachable!(),
+            } {
+                state.tooltip = Some(Tooltip::Error(format!(
+                    "Invalid move (out of bounds): {err:?}"
+                )));
+            }
+        }
+        _ => todo!(),
     }
 
     Ok(false)

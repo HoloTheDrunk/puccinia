@@ -24,10 +24,8 @@ pub(crate) fn run(args: Args, sender: Sender<crate::frontend::Message>) -> Resul
     }
 
     // TODO: replace with actual logic
-    // loop {
-    std::thread::sleep(Duration::from_secs(1));
+    std::thread::sleep(Duration::from_secs(10));
     sender.send(frontend::Message::Break)?;
-    // }
 
     Ok(())
 }

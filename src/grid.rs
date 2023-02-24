@@ -1,7 +1,4 @@
-use std::{
-    io::Write,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tui::{
     style::{Color, Modifier, Style},
@@ -15,6 +12,7 @@ pub struct Grid {
 
     lids: char,
     sides: char,
+    corners: Option<[char; 4]>,
 
     cursor: (usize, usize),
     last_move: Instant,
@@ -27,9 +25,21 @@ impl Widget for Grid {
         let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
         let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;
 
-        let lid = self.lids.to_string().repeat(width as usize - 1);
+        let lid = self.lids.to_string().repeat(width as usize + 1);
 
-        buf.set_string(area.left() + 2, area.top(), lid.as_str(), Style::default());
+        let top_lid = format!(
+            "{}{lid}{}",
+            self.corners.map(|arr| arr[0]).unwrap_or(' '),
+            self.corners.map(|arr| arr[1]).unwrap_or(' ')
+        );
+
+        let bot_lid = format!(
+            "{}{lid}{}",
+            self.corners.map(|arr| arr[2]).unwrap_or(' '),
+            self.corners.map(|arr| arr[3]).unwrap_or(' ')
+        );
+
+        buf.set_string(area.left(), area.top(), top_lid.as_str(), Style::default());
 
         self.inner
             .iter()
@@ -50,9 +60,9 @@ impl Widget for Grid {
             });
 
         buf.set_string(
-            area.left() + 2,
+            area.left(),
             area.top() + height,
-            lid.as_str(),
+            bot_lid.as_str(),
             Style::default(),
         );
 
@@ -109,8 +119,9 @@ impl Grid {
         Self {
             width,
             height,
-            lids: '-',
-            sides: '|',
+            lids: '─',
+            sides: '│',
+            corners: Some(['╭', '╮', '╰', '╯']),
             cursor: Default::default(),
             inner: vec![vec![' '; width]; height],
             last_move: Instant::now(),

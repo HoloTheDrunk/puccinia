@@ -23,7 +23,11 @@ pub(crate) fn run(args: Args, sender: Sender<crate::frontend::Message>) -> Resul
         sender.send(frontend::Message::LogicFail(Some(err.to_string())))?;
     }
 
-    std::thread::sleep(Duration::from_secs(2));
+    // TODO: replace with actual logic
+    // loop {
+    std::thread::sleep(Duration::from_secs(1));
+    sender.send(frontend::Message::Break)?;
+    // }
 
     Ok(())
 }

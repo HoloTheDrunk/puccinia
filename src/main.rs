@@ -25,8 +25,7 @@ fn main() -> Result<()> {
 
     if let Err(err) = frontend::run(receiver) {
         join_handler(handler)?;
-        std::fs::write("log", format!("{err:?}"))?;
-        bail!("{err:?}");
+        bail!("{err}");
     }
 
     join_handler(handler)?;

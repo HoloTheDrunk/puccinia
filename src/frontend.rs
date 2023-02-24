@@ -1,10 +1,11 @@
 use std::{
     io::Stdout,
     sync::mpsc::{self, Receiver, TryRecvError},
-    time::Duration,
+    thread,
+    time::{Duration, Instant},
 };
 
-use tui::{style::Color, widgets::canvas::Rectangle};
+use tui::style::Color;
 
 use crate::grid::Grid;
 
@@ -19,8 +20,7 @@ use {
         backend::{Backend, CrosstermBackend},
         layout::{Margin, Rect},
         style::Style,
-        text::Text,
-        widgets::{Block, Borders, Paragraph, Widget},
+        widgets::{Block, Borders, Paragraph},
         Frame, Terminal,
     },
 };
@@ -33,25 +33,11 @@ pub enum Error {
     Channel(mpsc::TryRecvError),
     #[error("Terminal failure: {0:?}")]
     Terminal(std::io::Error),
+    #[error("Terminated by logic thread")]
+    Terminated,
 }
 
 type Result<T> = anyhow::Result<T, Error>;
-
-#[derive(Debug)]
-#[allow(unused)]
-pub enum Message {
-    Break,
-    Load(String),
-    LogicFail(Option<String>),
-    PopupToggle(Tooltip),
-}
-
-#[derive(Clone, Debug)]
-#[allow(unused)]
-pub enum Tooltip {
-    Error(String),
-    Help,
-}
 
 #[derive(Default, Debug)]
 struct State {
@@ -65,6 +51,22 @@ enum EditorMode {
     #[default]
     Normal,
     Input,
+}
+
+#[derive(Clone, Debug)]
+#[allow(unused)]
+pub enum Tooltip {
+    Error(String),
+    Help,
+}
+
+#[derive(Debug)]
+#[allow(unused)]
+pub enum Message {
+    Break,
+    Load(String),
+    LogicFail(Option<String>),
+    PopupToggle(Tooltip),
 }
 
 pub(crate) fn run(receiver: Receiver<Message>) -> Result<()> {
@@ -120,64 +122,103 @@ fn main_loop<B: Backend>(
     state: &mut State,
     receiver: &Receiver<Message>,
 ) -> Result<()> {
-    let mut stop = false;
-    loop {
-        match receiver.try_recv() {
-            Ok(Message::Load(content)) => {
-                state.grid = Grid::from(content);
-            }
-            Ok(Message::Break) => break,
-            Ok(Message::LogicFail(opt_msg)) => {
-                state.tooltip = opt_msg.map(|msg| Tooltip::Error(msg));
-            }
-            Ok(Message::PopupToggle(_)) => todo!(),
-            Err(err) => match err {
-                TryRecvError::Empty => (),
-                TryRecvError::Disconnected => return Err(Error::Channel(err)),
-            },
-        }
+    let mut stop: bool;
+    let mut last_frame = Instant::now();
 
-        if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
-            match crossterm::event::read() {
-                Ok(Event::Key(KeyEvent {
-                    code: KeyCode::Char('q'),
-                    ..
-                })) => {
-                    state.tooltip = Some(Tooltip::Error("Press 'q' to exit".to_owned()));
-                    stop = true;
-                }
-                Err(err) => return Err(Error::Terminal(err)),
-                _ => (),
-            }
-        }
+    loop {
+        let now = Instant::now();
+        let delta = now.duration_since(last_frame);
+        last_frame = now;
+
+        stop = handle_events(state)?;
+
+        try_receive_message(state, receiver)?;
 
         terminal
             .draw(|f| {
-                let size = f.size();
-
-                f.render_widget(Block::default().title("MST").borders(Borders::ALL), size);
-
-                f.render_widget(
-                    state.grid.clone(),
-                    size.inner(&Margin {
-                        vertical: 5,
-                        horizontal: 5,
-                    }),
-                );
-
-                print_tooltip(f, state);
+                ui(f, state);
             })
             .map_err(|err| Error::Terminal(err))?;
 
         if stop {
             break;
         }
+
+        if delta < Duration::from_millis(80) {
+            std::thread::sleep(Duration::from_millis(80) - delta);
+        }
     }
 
     Ok(())
 }
 
-fn print_tooltip<B: Backend>(frame: &mut Frame<B>, state: &State) {
+fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Result<()> {
+    match receiver.try_recv() {
+        Ok(Message::Load(content)) => {
+            state.grid = Grid::from(content);
+        }
+        Ok(Message::Break) => return Err(Error::Terminated),
+        Ok(Message::LogicFail(opt_msg)) => {
+            state.tooltip = opt_msg.map(|msg| Tooltip::Error(msg));
+        }
+        Ok(Message::PopupToggle(_)) => todo!(),
+        Err(err) => match err {
+            TryRecvError::Empty => (),
+            TryRecvError::Disconnected => return Err(Error::Channel(err)),
+        },
+    }
+
+    Ok(())
+}
+
+fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
+    let size = f.size();
+
+    f.render_widget(Block::default().title("MST").borders(Borders::ALL), size);
+
+    f.render_widget(
+        state.grid.clone(),
+        size.inner(&Margin {
+            vertical: 5,
+            horizontal: 5,
+        }),
+    );
+
+    render_tooltip(f, state);
+}
+
+fn handle_events(state: &mut State) -> Result<bool> {
+    if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
+        match crossterm::event::read() {
+            Ok(Event::Key(KeyEvent { code, .. })) => match code {
+                KeyCode::Char('q') => {
+                    state.tooltip = Some(Tooltip::Error("Press 'q' to exit".to_owned()));
+                    return Ok(true);
+                }
+                KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
+                    if let Err(err) = match c {
+                        'h' => state.grid.move_cursor(-1, 0),
+                        'j' => state.grid.move_cursor(0, 1),
+                        'k' => state.grid.move_cursor(0, -1),
+                        'l' => state.grid.move_cursor(1, 0),
+                        _ => unreachable!(),
+                    } {
+                        state.tooltip = Some(Tooltip::Error(format!(
+                            "Invalid move (out of bounds): {err:?}"
+                        )));
+                    }
+                }
+                _ => todo!(),
+            },
+            Err(err) => return Err(Error::Terminal(err)),
+            _ => (),
+        }
+    }
+
+    Ok(false)
+}
+
+fn render_tooltip<B: Backend>(frame: &mut Frame<B>, state: &State) {
     let size = frame.size();
 
     if let Some(tooltip) = state.tooltip.clone() {

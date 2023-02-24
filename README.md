@@ -1,2 +1,2 @@
 # mst
-MineSweeper Turing-complete, a TUI minesweeper map editor and interpreter.
+MineSweeper TUI, a map editor and interpreter.

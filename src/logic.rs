@@ -1,8 +1,6 @@
-use std::sync::mpsc::Sender;
+use std::{sync::mpsc::Sender, time::Duration};
 
-use clap::Parser;
-
-use crate::frontend;
+use crate::{frontend, Args};
 
 #[derive(thiserror::Error, Clone, Debug)]
 #[allow(unused)]
@@ -20,28 +18,21 @@ pub enum FileError {
 
 type Result<T> = anyhow::Result<T>;
 
-#[derive(Parser)]
-/// Minesweeper TUI editor and runner
-struct Args {
-    /// Input file location
-    input: String,
-}
-
-pub fn run(sender: Sender<crate::frontend::Message>) -> Result<()> {
-    if let Err(err) = load_file(&sender) {
+pub(crate) fn run(args: Args, sender: Sender<crate::frontend::Message>) -> Result<()> {
+    if let Err(err) = load_file(args.input.as_str(), &sender) {
         sender.send(frontend::Message::LogicFail(Some(err.to_string())))?;
     }
+
+    std::thread::sleep(Duration::from_secs(2));
 
     Ok(())
 }
 
-fn load_file(sender: &Sender<crate::frontend::Message>) -> Result<()> {
-    let Args { input: path } = Args::parse();
+fn load_file(path: &str, sender: &Sender<crate::frontend::Message>) -> Result<()> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?;
 
-    let content = std::fs::read_to_string(&path)
-        .map_err(|_| Error::FileError(FileError::FileNotFound(path)))?;
-
-    sender.send(frontend::Message::Load(content))?;
+    sender.send(frontend::Message::Load(content.to_owned()))?;
 
     Ok(())
 }

@@ -1,23 +1,38 @@
-use std::sync::mpsc::{self, Receiver};
-
-use pancurses::chtype;
-
-use {
-    ellipse::Ellipse,
-    pancurses::{endwin, initscr, noecho, Input, Window},
+use std::{
+    io::Stdout,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    time::Duration,
 };
 
-#[doc(hidden)]
-const GREY_PAIR: chtype = 1;
-const GREEN_PAIR: chtype = 2;
-const RED_PAIR: chtype = 3;
+use tui::{style::Color, widgets::canvas::Rectangle};
 
-#[derive(thiserror::Error, Clone, Debug)]
+use crate::grid::Grid;
+
+use {
+    crossterm::{
+        event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent},
+        execute,
+        terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    },
+    ellipse::Ellipse,
+    tui::{
+        backend::{Backend, CrosstermBackend},
+        layout::{Margin, Rect},
+        style::Style,
+        text::Text,
+        widgets::{Block, Borders, Paragraph, Widget},
+        Frame, Terminal,
+    },
+};
+
+#[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("Unknown error: {0}")]
     Unknown(String),
     #[error("Channel error: {0:?}")]
-    ChannelError(mpsc::TryRecvError),
+    Channel(mpsc::TryRecvError),
+    #[error("Terminal failure: {0:?}")]
+    Terminal(std::io::Error),
 }
 
 type Result<T> = anyhow::Result<T, Error>;
@@ -25,119 +40,176 @@ type Result<T> = anyhow::Result<T, Error>;
 #[derive(Debug)]
 #[allow(unused)]
 pub enum Message {
-    Load(String),
     Break,
+    Load(String),
     LogicFail(Option<String>),
+    PopupToggle(Tooltip),
 }
 
-pub fn run(receiver: Receiver<Message>) -> Result<()> {
-    let window = setup();
+#[derive(Clone, Debug)]
+#[allow(unused)]
+pub enum Tooltip {
+    Error(String),
+    Help,
+}
 
-    main_loop(&window, &receiver)?;
+#[derive(Default, Debug)]
+struct State {
+    mode: EditorMode,
+    grid: Grid,
+    tooltip: Option<Tooltip>,
+}
 
-    wait_for_exit(&window);
-    endwin();
+#[derive(Default, Debug)]
+enum EditorMode {
+    #[default]
+    Normal,
+    Input,
+}
+
+pub(crate) fn run(receiver: Receiver<Message>) -> Result<()> {
+    let mut terminal = setup_terminal().map_err(|err| Error::Terminal(err))?;
+
+    let res = wrapper(&mut terminal, receiver);
+
+    restore_terminal(terminal).map_err(|err| Error::Terminal(err))?;
+
+    res
+}
+
+fn wrapper<B: Backend>(terminal: &mut Terminal<B>, receiver: Receiver<Message>) -> Result<()> {
+    let mut state = State {
+        grid: Grid::new(10, 10),
+        ..Default::default()
+    };
+
+    main_loop(terminal, &mut state, &receiver)?;
+
+    wait_for_exit().map_err(|err| Error::Terminal(err))?;
 
     Err(Error::Unknown("Oopsie".to_owned()))
 }
 
-fn setup() -> Window {
-    let window = initscr();
+fn setup_terminal() -> std::io::Result<Terminal<CrosstermBackend<Stdout>>> {
+    enable_raw_mode()?;
 
-    window.keypad(true);
-    window.draw_box(0 as char, 0 as char);
-    window.refresh();
+    let mut stdout = std::io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
 
-    noecho();
+    let backend = CrosstermBackend::new(stdout);
 
-    // Color setup
-    let mut bg = pancurses::COLOR_BLACK;
-
-    pancurses::start_color();
-    if pancurses::has_colors() {
-        if pancurses::use_default_colors() == pancurses::OK {
-            bg = -1;
-        }
-
-        pancurses::init_pair(GREY_PAIR as i16, pancurses::COLOR_WHITE, bg);
-        pancurses::init_pair(GREEN_PAIR as i16, pancurses::COLOR_GREEN, bg);
-        pancurses::init_pair(RED_PAIR as i16, pancurses::COLOR_RED, bg);
-    }
-
-    window
+    Ok(Terminal::new(backend)?)
 }
 
-fn main_loop(window: &Window, receiver: &Receiver<Message>) -> Result<()> {
+fn restore_terminal<B: Backend + std::io::Write>(mut terminal: Terminal<B>) -> std::io::Result<()> {
+    disable_raw_mode()?;
+
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+
+    terminal.show_cursor()?;
+
+    Ok(())
+}
+
+fn main_loop<B: Backend>(
+    terminal: &mut Terminal<B>,
+    state: &mut State,
+    receiver: &Receiver<Message>,
+) -> Result<()> {
+    let mut stop = false;
     loop {
         match receiver.try_recv() {
             Ok(Message::Load(content)) => {
-                window.mv(1, 1);
-                window.printw(content);
+                state.grid = Grid::from(content);
             }
             Ok(Message::Break) => break,
             Ok(Message::LogicFail(opt_msg)) => {
-                if let Some(msg) = opt_msg {
-                    print_error(&window, msg);
-                }
+                state.tooltip = opt_msg.map(|msg| Tooltip::Error(msg));
             }
-            Err(err) => {
-                return Err(Error::ChannelError(err));
+            Ok(Message::PopupToggle(_)) => todo!(),
+            Err(err) => match err {
+                TryRecvError::Empty => (),
+                TryRecvError::Disconnected => return Err(Error::Channel(err)),
+            },
+        }
+
+        if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
+            match crossterm::event::read() {
+                Ok(Event::Key(KeyEvent {
+                    code: KeyCode::Char('q'),
+                    ..
+                })) => {
+                    state.tooltip = Some(Tooltip::Error("Press 'q' to exit".to_owned()));
+                    stop = true;
+                }
+                Err(err) => return Err(Error::Terminal(err)),
+                _ => (),
             }
         }
 
-        if let Some(c) = window.getch() {
-            match c {
-                Input::Character(c) => window.addch(c),
-                _ => break,
-            };
+        terminal
+            .draw(|f| {
+                let size = f.size();
+
+                f.render_widget(Block::default().title("MST").borders(Borders::ALL), size);
+
+                f.render_widget(
+                    state.grid.clone(),
+                    size.inner(&Margin {
+                        vertical: 5,
+                        horizontal: 5,
+                    }),
+                );
+
+                print_tooltip(f, state);
+            })
+            .map_err(|err| Error::Terminal(err))?;
+
+        if stop {
+            break;
         }
     }
 
     Ok(())
 }
 
-fn print_error(window: &Window, msg: impl ToString) {
-    set_color(&window, RED_PAIR, true, true);
-    window.mv(window.get_max_y() - 1, 0);
-    let msg = msg.to_string();
-    let trunc_msg = msg
-        .as_str()
-        .truncate_ellipse((window.get_max_x() - 3) as usize);
+fn print_tooltip<B: Backend>(frame: &mut Frame<B>, state: &State) {
+    let size = frame.size();
 
-    window.printw(trunc_msg);
+    if let Some(tooltip) = state.tooltip.clone() {
+        match tooltip {
+            Tooltip::Help => (),
+            Tooltip::Error(err) => {
+                let trunc = err.as_str().truncate_ellipse((size.width - 10) as usize);
+                frame.render_widget(
+                    Paragraph::new(trunc.clone()).style(Style::default().fg(Color::Red)),
+                    Rect {
+                        x: 0,
+                        y: size.bottom() - 1,
+                        width: trunc.len() as u16,
+                        height: 1,
+                    },
+                )
+            }
+        }
+    }
 }
 
-fn wait_for_exit(window: &Window) {
-    while let Some(c) = window.getch() {
-        match c {
-            Input::KeyDC => break,
+fn wait_for_exit() -> std::io::Result<()> {
+    loop {
+        match crossterm::event::read() {
+            Ok(Event::Key(KeyEvent {
+                code: KeyCode::Char('q'),
+                ..
+            })) => break,
+            Err(err) => return Err(err),
             _ => (),
         }
     }
-}
 
-/// Sets or unsets a color and optionally a boldness.
-///
-/// # Example
-/// ```
-/// let win = init_frontend();
-///
-/// set_color(&win, GREEN_PAIR, true, true);
-///
-/// win.addch('c'); // Should print a bold green 'c'
-/// ```
-fn set_color(window: &pancurses::Window, pair: chtype, bold: bool, enabled: bool) {
-    if pancurses::has_colors() {
-        let mut attr = pancurses::COLOR_PAIR(pair);
-
-        if bold {
-            attr |= pancurses::A_BOLD;
-        }
-
-        if enabled {
-            window.attrset(attr);
-        } else {
-            window.attroff(attr);
-        }
-    }
+    Ok(())
 }

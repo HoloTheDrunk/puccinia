@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    io::Write,
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+};
 
 use tui::{
     style::{Color, Modifier, Style},
@@ -14,6 +17,7 @@ pub struct Grid {
     sides: char,
 
     cursor: (usize, usize),
+    last_move: Instant,
 
     inner: Vec<Vec<char>>,
 }
@@ -53,14 +57,15 @@ impl Widget for Grid {
         );
 
         let (x, y) = self.cursor;
-        let (x, y) = (area.left() + 2 + x as u16, area.top() + 1 + y as u16);
+        let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
         let val = buf.get(x, y).symbol.clone();
-        let blink = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-            % 2
-            == 0;
+        let blink = self.last_move.elapsed() < Duration::from_millis(500)
+            || SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                % 2
+                == 0;
 
         buf.set_string(
             x,
@@ -108,6 +113,7 @@ impl Grid {
             sides: '|',
             cursor: Default::default(),
             inner: vec![vec![' '; width]; height],
+            last_move: Instant::now(),
         }
     }
 
@@ -143,23 +149,25 @@ impl Grid {
     }
 
     /// Moves cursor by an offset
-    pub fn move_cursor(&mut self, x: i32, y: i32) -> Result<(), ()> {
+    pub fn move_cursor(&mut self, x: i32, y: i32) -> Result<(), (i32, i32)> {
         let (og_x, og_y) = self.cursor;
         let (new_x, new_y) = (og_x as i32 + x, og_y as i32 + y);
 
         if new_x >= 0 && new_y >= 0 {
-            return self.set_cursor(new_x as usize, new_y as usize);
+            return self
+                .set_cursor(new_x as usize, new_y as usize)
+                .map_err(|(x, y)| (x as i32, y as i32));
         }
 
-        Err(())
+        Err((new_x, new_y))
     }
 
     /// Sets current cursor position
-    pub fn set_cursor(&mut self, x: usize, y: usize) -> Result<(), ()> {
-        if !(0..=(self.width.into())).contains(&x.into())
-            || !(0..=(self.height.into())).contains(&y.into())
-        {
-            return Err(());
+    pub fn set_cursor(&mut self, x: usize, y: usize) -> Result<(), (usize, usize)> {
+        self.last_move = Instant::now();
+
+        if !(0..(self.width.into())).contains(&x) || !(0..(self.height.into())).contains(&y) {
+            return Err((x, y));
         }
 
         self.cursor = (x, y);

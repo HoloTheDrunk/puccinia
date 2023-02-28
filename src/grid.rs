@@ -5,6 +5,8 @@ use tui::{
     widgets::Widget,
 };
 
+use crate::cell::{Cell, CellValue};
+
 #[derive(Clone, Debug)]
 pub struct Grid {
     width: usize,
@@ -17,7 +19,7 @@ pub struct Grid {
     cursor: (usize, usize),
     last_move: Instant,
 
-    inner: Vec<Vec<char>>,
+    inner: Vec<Vec<Cell>>,
 }
 
 impl Widget for Grid {
@@ -43,12 +45,7 @@ impl Widget for Grid {
 
         self.inner
             .iter()
-            .map(|line| {
-                line.iter()
-                    .map(ToString::to_string)
-                    .collect::<Vec<String>>()
-                    .join(" ")
-            })
+            .map(|line| line.iter().map(|c| char::from(c.value)).collect::<String>())
             .enumerate()
             .for_each(|(index, line)| {
                 buf.set_string(
@@ -123,7 +120,7 @@ impl Grid {
             sides: '│',
             corners: Some(['╭', '╮', '╰', '╯']),
             cursor: Default::default(),
-            inner: vec![vec![' '; width]; height],
+            inner: vec![vec![CellValue::Empty.into(); width]; height],
             last_move: Instant::now(),
         }
     }
@@ -133,7 +130,9 @@ impl Grid {
     pub fn add_column(&mut self) {
         self.width += 1;
 
-        self.inner.iter_mut().for_each(|row| row.push(' '));
+        self.inner
+            .iter_mut()
+            .for_each(|row| row.push(CellValue::Empty.into()));
     }
 
     /// Adds a new line, either blank or filled with desired string.
@@ -142,29 +141,45 @@ impl Grid {
         self.height += 1;
 
         if let Some(line) = line {
-            let mut line = line.chars().collect::<Vec<char>>();
+            let mut line = line
+                .chars()
+                .map(|c| {
+                    Cell::from(
+                        serde_json::from_str::<CellValue>(c.to_string().as_ref())
+                            .expect(format!("Invalid cell value `{c}`").as_str()),
+                    )
+                })
+                .collect::<Vec<Cell>>();
 
             // If longer than width, resize all other rows to keep rectangular shape
             if line.len() > self.width {
                 let size = line.len();
                 self.width = size;
-                self.inner.iter_mut().for_each(|row| row.resize(size, ' '));
+                self.inner
+                    .iter_mut()
+                    .for_each(|row| row.resize(size, CellValue::Empty.into()));
             } else {
-                line.resize(self.width, ' ');
+                line.resize(self.width, CellValue::Empty.into());
             }
 
             self.inner.push(line);
         } else {
-            self.inner.push(vec![' '; self.width]);
+            self.inner.push(vec![CellValue::Empty.into(); self.width]);
         }
     }
 
-    /// Moves cursor by an offset
+    /// Moves cursor by an offset, possibly extending the grid to the right
     pub fn move_cursor(&mut self, x: i32, y: i32) -> Result<(), (i32, i32)> {
         let (og_x, og_y) = self.cursor;
         let (new_x, new_y) = (og_x as i32 + x, og_y as i32 + y);
 
         if new_x >= 0 && new_y >= 0 {
+            if new_x as usize >= self.width {
+                self.add_column();
+            } else if new_y as usize >= self.height {
+                self.add_line(None);
+            }
+
             return self
                 .set_cursor(new_x as usize, new_y as usize)
                 .map_err(|(x, y)| (x as i32, y as i32));
@@ -198,7 +213,7 @@ impl Grid {
 
     /// Completely clears grid
     pub fn clear(&mut self) {
-        self.inner = vec![vec![' '; self.width]; self.height];
+        self.inner = vec![vec![CellValue::Empty.into(); self.width]; self.height];
     }
 
     /// Set characters for lids and walls
@@ -210,18 +225,18 @@ impl Grid {
 
     #[inline]
     /// Get cell value at position
-    pub fn get(&self, x: usize, y: usize) -> char {
+    pub fn get(&self, x: usize, y: usize) -> Cell {
         self.inner.get(y).unwrap()[x]
     }
 
     #[inline]
     /// Set cell at position to desired value
-    pub fn set(&mut self, x: usize, y: usize, val: char) {
-        self.inner.get_mut(y).unwrap()[x] = val;
+    pub fn set(&mut self, x: usize, y: usize, val: CellValue) {
+        self.inner.get_mut(y).unwrap()[x].value = val;
     }
 
     /// Set cell under cursor to desired value
-    pub fn set_current(&mut self, val: char) {
+    pub fn set_current(&mut self, val: CellValue) {
         let (x, y) = self.cursor;
         self.set(x, y, val);
     }

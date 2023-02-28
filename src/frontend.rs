@@ -1,13 +1,12 @@
 use std::{
     io::Stdout,
     sync::mpsc::{self, Receiver, Sender, TryRecvError},
-    thread,
     time::{Duration, Instant},
 };
 
 use tui::style::Color;
 
-use crate::grid::Grid;
+use crate::{cell::CellValue, grid::Grid};
 
 use {
     crossterm::{
@@ -49,8 +48,12 @@ struct State {
 #[derive(Default, Debug)]
 enum EditorMode {
     #[default]
+    /// Mode for moving around efficiently and running commands
     Normal,
+    /// Text edition mode
     Insert,
+    /// Running state
+    Running,
 }
 
 #[derive(Clone, Debug)]
@@ -64,9 +67,10 @@ pub enum Tooltip {
 #[allow(unused)]
 pub enum Message {
     Break,
-    Load(String),
+    Load(Grid),
     LogicFail(Option<String>),
     PopupToggle(Tooltip),
+    SetCell { x: usize, y: usize, v: char },
 }
 
 pub(crate) fn run(
@@ -75,9 +79,9 @@ pub(crate) fn run(
 ) -> Result<()> {
     let mut terminal = setup_terminal().map_err(|err| Error::Terminal(err))?;
 
-    let res = wrapper(&mut terminal, receiver, sender);
+    let res = wrapper(&mut terminal, receiver, &sender);
 
-    restore_terminal(terminal).map_err(|err| Error::Terminal(err))?;
+    restore_terminal(terminal, &sender).map_err(|err| Error::Terminal(err))?;
 
     res
 }
@@ -85,7 +89,7 @@ pub(crate) fn run(
 fn wrapper<B: Backend>(
     terminal: &mut Terminal<B>,
     receiver: Receiver<Message>,
-    sender: Sender<crate::logic::Message>,
+    sender: &Sender<crate::logic::Message>,
 ) -> Result<()> {
     let mut state = State {
         grid: Grid::new(10, 10),
@@ -96,7 +100,7 @@ fn wrapper<B: Backend>(
 
     wait_for_exit().map_err(|err| Error::Terminal(err))?;
 
-    Err(Error::Unknown("Oopsie".to_owned()))
+    Ok(())
 }
 
 fn setup_terminal() -> std::io::Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -110,7 +114,12 @@ fn setup_terminal() -> std::io::Result<Terminal<CrosstermBackend<Stdout>>> {
     Ok(Terminal::new(backend)?)
 }
 
-fn restore_terminal<B: Backend + std::io::Write>(mut terminal: Terminal<B>) -> std::io::Result<()> {
+fn restore_terminal<B: Backend + std::io::Write>(
+    mut terminal: Terminal<B>,
+    sender: &Sender<crate::logic::Message>,
+) -> std::io::Result<()> {
+    sender.send(crate::logic::Message::Kill).unwrap();
+
     disable_raw_mode()?;
 
     execute!(
@@ -132,23 +141,28 @@ fn main_loop<B: Backend>(
 ) -> Result<()> {
     let mut stop: bool;
     let mut last_frame = Instant::now();
+    let target_fps = 30;
+    let target_delta = Duration::from_millis(1000 / target_fps);
 
     loop {
         let now = Instant::now();
         let delta = now.duration_since(last_frame);
 
+        if delta > Duration::from_millis(80) {
+            std::thread::sleep(target_delta - delta);
+        }
+
+        last_frame = now;
+
         stop = handle_events(state)?;
 
         try_receive_message(state, receiver)?;
 
-        if delta > Duration::from_millis(80) {
-            last_frame = now;
-            terminal
-                .draw(|f| {
-                    ui(f, state);
-                })
-                .map_err(|err| Error::Terminal(err))?;
-        }
+        terminal
+            .draw(|f| {
+                ui(f, state);
+            })
+            .map_err(|err| Error::Terminal(err))?;
 
         if stop {
             break;
@@ -160,14 +174,22 @@ fn main_loop<B: Backend>(
 
 fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Result<()> {
     match receiver.try_recv() {
-        Ok(Message::Load(content)) => {
-            state.grid = Grid::from(content);
-        }
-        Ok(Message::Break) => return Err(Error::Terminated),
-        Ok(Message::LogicFail(opt_msg)) => {
-            state.tooltip = opt_msg.map(|msg| Tooltip::Error(msg));
-        }
-        Ok(Message::PopupToggle(_)) => todo!(),
+        Ok(msg) => match msg {
+            Message::Load(content) => {
+                state.grid = Grid::from(content);
+            }
+            Message::Break => return Err(Error::Terminated),
+            Message::LogicFail(opt_msg) => {
+                state.tooltip = opt_msg.map(|msg| Tooltip::Error(msg));
+            }
+            Message::PopupToggle(_) => todo!(),
+            Message::SetCell { x, y, v } => state.grid.set(
+                x,
+                y,
+                serde_json::from_str(v.to_string().as_ref())
+                    .expect(format!("Invalid cell value `{v}`").as_ref()),
+            ),
+        },
         Err(err) => match err {
             TryRecvError::Empty => (),
             TryRecvError::Disconnected => return Err(Error::Channel(err)),
@@ -201,6 +223,9 @@ fn handle_events(state: &mut State) -> Result<bool> {
                 EditorMode::Insert => {
                     handle_events_insert_mode(code, state);
                 }
+                EditorMode::Running => {
+                    handle_events_running_mode(code, state);
+                }
             },
             Err(err) => return Err(Error::Terminal(err)),
             _ => (),
@@ -210,10 +235,22 @@ fn handle_events(state: &mut State) -> Result<bool> {
     Ok(false)
 }
 
+fn handle_events_running_mode(code: KeyCode, state: &mut State) {
+    match code {
+        KeyCode::Char(c) => {
+            todo!();
+        }
+        KeyCode::Esc => {
+            state.mode = EditorMode::Normal;
+        }
+        _ => todo!(),
+    }
+}
+
 fn handle_events_insert_mode(code: KeyCode, state: &mut State) {
     match code {
         KeyCode::Char(c) => {
-            state.grid.set_current(c);
+            state.grid.set_current(CellValue::from(c));
         }
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;

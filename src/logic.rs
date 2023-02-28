@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{frontend, Args};
+use crate::{cell::CellValue, frontend, grid::Grid, Args};
 
 #[derive(thiserror::Error, Clone, Debug)]
 #[allow(unused)]
@@ -22,12 +22,29 @@ pub enum FileError {
 #[derive(Debug)]
 #[allow(unused)]
 pub enum Message {
+    Kill,
     /// Synchronize grid status with frontend
-    Resync,
+    GetGrid,
     /// Set value at pos
-    Set { x: usize, y: usize, v: char },
-    /// Get value at pos
-    Get { x: usize, y: usize },
+    SetCell {
+        x: usize,
+        y: usize,
+        v: char,
+    },
+    RunningCommand(RunningCommand),
+}
+
+#[derive(Debug)]
+pub enum RunningCommand {
+    Start,
+    Step,
+    SkipToBreakpoint,
+}
+
+#[derive(Debug)]
+struct State {
+    grid: Grid,
+    stack: Vec<i32>,
 }
 
 type Result<T> = anyhow::Result<T>;
@@ -37,22 +54,41 @@ pub(crate) fn run(
     sender: Sender<crate::frontend::Message>,
     receiver: Receiver<Message>,
 ) -> Result<()> {
-    if let Err(err) = load_file(args.input.as_str(), &sender) {
-        sender.send(frontend::Message::LogicFail(Some(err.to_string())))?;
+    let mut state = State {
+        grid: Grid::from(std::fs::read_to_string(args.input.as_str()).map_err(|_| {
+            Error::FileError(FileError::FileNotFound(args.input.as_str().to_owned()))
+        })?),
+        stack: Vec::new(),
+    };
+
+    sender.send(frontend::Message::Load(state.grid.clone()))?;
+
+    // Event loop
+    let mut exit = false;
+    while !exit {
+        // Handle all queued events
+        while let Ok(message) = receiver.try_recv() {
+            match message {
+                Message::Kill => {
+                    exit = true;
+                    break;
+                }
+                Message::GetGrid => {
+                    sender.send(frontend::Message::Break)?;
+                }
+                Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
+                Message::RunningCommand(command) => match command {
+                    RunningCommand::Start => state.stack.clear(),
+                    RunningCommand::Step => todo!(),
+                    RunningCommand::SkipToBreakpoint => todo!(),
+                },
+            }
+        }
+
+        std::thread::sleep(Duration::from_secs(1));
     }
 
-    // TODO: replace with actual logic
-    std::thread::sleep(Duration::from_secs(10));
     sender.send(frontend::Message::Break)?;
-
-    Ok(())
-}
-
-fn load_file(path: &str, sender: &Sender<crate::frontend::Message>) -> Result<()> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?;
-
-    sender.send(frontend::Message::Load(content.to_owned()))?;
 
     Ok(())
 }

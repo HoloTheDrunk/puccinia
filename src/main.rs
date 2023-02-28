@@ -1,3 +1,4 @@
+mod cell;
 mod frontend;
 mod grid;
 mod logic;
@@ -8,6 +9,7 @@ use anyhow::bail;
 use clap::Parser;
 
 use anyhow::Result;
+use crossterm::terminal::disable_raw_mode;
 
 #[derive(Parser)]
 /// Minesweeper TUI editor and runner
@@ -17,6 +19,12 @@ struct Args {
 }
 
 fn main() -> Result<()> {
+    let default_panic_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        disable_raw_mode().unwrap();
+        default_panic_hook(info);
+    }));
+
     let args = Args::parse();
 
     let (frontend_sender, frontend_receiver) = mpsc::channel();

@@ -17,7 +17,6 @@ impl From<CellValue> for Cell {
 
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
 #[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-#[serde(untagged)]
 pub enum CellValue {
     #[serde(rename = " ")]
     Empty,
@@ -197,7 +196,7 @@ fn to_json_char<T: Serialize>(value: T) -> char {
     serde_json::to_string(&value)
         .unwrap()
         .chars()
-        .next()
+        .nth(1)
         .unwrap()
 }
 
@@ -247,8 +246,9 @@ mod test {
         for (cell_value, expected) in map.iter() {
             assert_eq!(
                 *expected,
-                to_json_char(cell_value),
-                "Failed to serialize {cell_value:?}"
+                char::from(*cell_value),
+                "Failed to serialize {cell_value:?}: {}",
+                serde_json::to_value(cell_value).unwrap()
             );
         }
     }

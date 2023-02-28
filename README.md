@@ -1,2 +1,2 @@
-# mst
-MineSweeper TUI, a map editor and interpreter.
+# Puccinia
+A Befunge editor and live interpreter.

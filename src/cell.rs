@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use anyhow::anyhow;
 
 /// Represents a single cell of the grid.
 #[derive(Clone, Debug, Copy)]
@@ -15,19 +15,21 @@ impl From<CellValue> for Cell {
     }
 }
 
+impl From<char> for Cell {
+    fn from(value: char) -> Self {
+        Cell::from(CellValue::from(value))
+    }
+}
+
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy)]
 pub enum CellValue {
-    #[serde(rename = " ")]
     Empty,
     Op(Operator),
     Dir(Direction),
     If(IfDir),
-    #[serde(rename = "\"")]
     StringMode,
-    #[serde(rename = "#")]
     Bridge,
-    #[serde(rename = "@")]
     End,
     Number(u32),
     Char(char),
@@ -35,8 +37,22 @@ pub enum CellValue {
 
 impl From<char> for CellValue {
     fn from(value: char) -> Self {
-        serde_json::from_str(value.to_string().as_ref())
-            .expect(format!("Invalid cell value `{value}`").as_ref())
+        match value {
+            ' ' => CellValue::Empty,
+            '\"' => CellValue::StringMode,
+            '#' => CellValue::Bridge,
+            '@' => CellValue::End,
+            v @ '0'..='9' => CellValue::Number(u32::from(v)),
+            c => {
+                if let Ok(op) = Operator::try_from(c) {
+                    CellValue::Op(op)
+                } else if let Ok(dir) = Direction::try_from(c) {
+                    CellValue::Dir(dir)
+                } else {
+                    CellValue::Char(c)
+                }
+            }
+        }
     }
 }
 
@@ -57,8 +73,7 @@ impl From<CellValue> for char {
 }
 
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy, Serialize, Deserialize)]
-#[serde(untagged)]
+#[derive(Clone, Debug, Copy)]
 pub enum Operator {
     Nullary(NullaryOperator),
     Unary(UnaryOperator),
@@ -66,138 +81,153 @@ pub enum Operator {
     Ternary(TernaryOperator),
 }
 
-impl From<Operator> for char {
-    #[inline]
-    fn from(value: Operator) -> Self {
-        to_json_char(value)
+impl TryFrom<char> for Operator {
+    type Error = anyhow::Error;
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        Ok(if let Ok(nullary) = NullaryOperator::try_from(value) {
+            Operator::Nullary(nullary)
+        } else if let Ok(unary) = UnaryOperator::try_from(value) {
+            Operator::Unary(unary)
+        } else if let Ok(binary) = BinaryOperator::try_from(value) {
+            Operator::Binary(binary)
+        } else if let Ok(ternary) = TernaryOperator::try_from(value) {
+            Operator::Ternary(ternary)
+        } else {
+            return Err(anyhow!("Invalid operator `{value}`"));
+        })
     }
+}
+
+impl From<Operator> for char {
+    fn from(value: Operator) -> Self {
+        match value {
+            Operator::Nullary(nullary) => char::from(nullary),
+            Operator::Unary(unary) => char::from(unary),
+            Operator::Binary(binary) => char::from(binary),
+            Operator::Ternary(ternary) => char::from(ternary),
+        }
+    }
+}
+
+macro_rules! char_mapping {
+    ($($enum:ident : $($variant:ident = $c:literal),* $(,)?);* $(;)?) => {
+        $(
+            impl TryFrom<char> for $enum {
+                type Error = anyhow::Error;
+
+                fn try_from(value: char) -> Result<Self, Self::Error> {
+                    Ok(match value {
+                        $(
+                            $c => $enum::$variant,
+                        )*
+                        c => return Err(anyhow!("Invalid {} `{}`", stringify!($enum), c)),
+                    })
+                }
+            }
+
+            impl From<$enum> for char {
+                fn from(value: $enum) -> char {
+                    match value {
+                        $(
+                            $enum::$variant => $c,
+                        )*
+                    }
+                }
+            }
+        )*
+    };
+}
+
+char_mapping! {
+    NullaryOperator:
+        Integer = '&',
+        Ascii = '~';
+
+    UnaryOperator:
+        Negate = '!',
+        Duplicate = ':',
+        Pop = '$',
+        WriteNumber = '.',
+        WriteASCII = ',';
+
+    BinaryOperator:
+        Greater = '`',
+        Add = '+',
+        Subtract = '-',
+        Multiply = '*',
+        Divide = '/',
+        Modulo = '%',
+        Swap = '\\',
+        Get = 'g';
+
+    TernaryOperator:
+        Put = 'p';
+
+    IfDir:
+        Horizontal = '_',
+        Vertical = '|';
+
+    Direction:
+        Up = '^',
+        Down = 'v',
+        Left = '<',
+        Right = '>',
+        Random = '?';
 }
 
 #[cfg_attr(test, derive(Hash, Eq))]
-#[derive(Default, PartialEq, Clone, Debug, Copy, Serialize, Deserialize)]
+#[derive(Default, PartialEq, Clone, Debug, Copy)]
 pub enum Direction {
-    #[serde(rename = "^")]
     Up,
-    #[serde(rename = "v")]
     Down,
-    #[serde(rename = "<")]
     Left,
     #[default]
-    #[serde(rename = ">")]
     Right,
-    #[serde(rename = "?")]
     Random,
 }
 
-impl From<Direction> for char {
-    #[inline]
-    fn from(value: Direction) -> char {
-        to_json_char(value)
-    }
-}
-
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, Debug, Copy)]
 pub enum NullaryOperator {
-    #[serde(rename = "&")]
     Integer,
-    #[serde(rename = "~")]
     Ascii,
 }
 
-impl From<NullaryOperator> for char {
-    #[inline]
-    fn from(value: NullaryOperator) -> char {
-        to_json_char(value)
-    }
-}
-
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, Debug, Copy)]
 pub enum UnaryOperator {
-    #[serde(rename = "!")]
     Negate,
-    #[serde(rename = ":")]
     Duplicate,
-    #[serde(rename = "$")]
     Pop,
-    #[serde(rename = ".")]
     WriteNumber,
-    #[serde(rename = ",")]
     WriteASCII,
 }
 
-impl From<UnaryOperator> for char {
-    #[inline]
-    fn from(value: UnaryOperator) -> char {
-        to_json_char(value)
-    }
-}
-
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, Debug, Copy)]
 pub enum BinaryOperator {
-    #[serde(rename = "`")]
     Greater,
-    #[serde(rename = "+")]
     Add,
-    #[serde(rename = "-")]
     Subtract,
-    #[serde(rename = "*")]
     Multiply,
-    #[serde(rename = "/")]
     Divide,
-    #[serde(rename = "%")]
     Modulo,
-    #[serde(rename = "\\")]
     Swap,
-    #[serde(rename = "g")]
     Get,
 }
 
-impl From<BinaryOperator> for char {
-    #[inline]
-    fn from(value: BinaryOperator) -> char {
-        to_json_char(value)
-    }
-}
-
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, Debug, Copy)]
 pub enum TernaryOperator {
-    #[serde(rename = "p")]
     Put,
 }
 
-impl From<TernaryOperator> for char {
-    #[inline]
-    fn from(value: TernaryOperator) -> char {
-        to_json_char(value)
-    }
-}
-
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy, Deserialize, Serialize)]
+#[derive(Clone, Debug, Copy)]
 pub enum IfDir {
-    #[serde(rename = "_")]
     Horizontal,
-    #[serde(rename = "|")]
     Vertical,
-}
-
-impl From<IfDir> for char {
-    #[inline]
-    fn from(value: IfDir) -> char {
-        to_json_char(value)
-    }
-}
-
-fn to_json_char<T: Serialize>(value: T) -> char {
-    serde_json::to_string(&value)
-        .unwrap()
-        .chars()
-        .nth(1)
-        .unwrap()
 }
 
 #[cfg(test)]
@@ -244,12 +274,8 @@ mod test {
         };
 
         for (cell_value, expected) in map.iter() {
-            assert_eq!(
-                *expected,
-                char::from(*cell_value),
-                "Failed to serialize {cell_value:?}: {}",
-                serde_json::to_value(cell_value).unwrap()
-            );
+            let got = char::from(*cell_value);
+            assert_eq!(*expected, got, "Failed to serialize {cell_value:?}: {got}",);
         }
     }
 }

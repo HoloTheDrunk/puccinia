@@ -183,12 +183,7 @@ fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Resul
                 state.tooltip = opt_msg.map(|msg| Tooltip::Error(msg));
             }
             Message::PopupToggle(_) => todo!(),
-            Message::SetCell { x, y, v } => state.grid.set(
-                x,
-                y,
-                serde_json::from_str(v.to_string().as_ref())
-                    .expect(format!("Invalid cell value `{v}`").as_ref()),
-            ),
+            Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
         },
         Err(err) => match err {
             TryRecvError::Empty => (),

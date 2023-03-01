@@ -45,7 +45,12 @@ impl Widget for Grid {
 
         self.inner
             .iter()
-            .map(|line| line.iter().map(|c| char::from(c.value)).collect::<String>())
+            .map(|line| {
+                line.iter()
+                    .map(|c| char::from(c.value).to_string())
+                    .collect::<Vec<String>>()
+                    .join(" ")
+            })
             .enumerate()
             .for_each(|(index, line)| {
                 buf.set_string(
@@ -141,15 +146,7 @@ impl Grid {
         self.height += 1;
 
         if let Some(line) = line {
-            let mut line = line
-                .chars()
-                .map(|c| {
-                    Cell::from(
-                        serde_json::from_str::<CellValue>(c.to_string().as_ref())
-                            .expect(format!("Invalid cell value `{c}`").as_str()),
-                    )
-                })
-                .collect::<Vec<Cell>>();
+            let mut line = line.chars().map(Cell::from).collect::<Vec<Cell>>();
 
             // If longer than width, resize all other rows to keep rectangular shape
             if line.len() > self.width {

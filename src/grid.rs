@@ -5,7 +5,7 @@ use tui::{
     widgets::Widget,
 };
 
-use crate::cell::{Cell, CellValue};
+use crate::cell::{Cell, CellValue, Direction};
 
 #[derive(Clone, Debug)]
 pub struct Grid {
@@ -17,6 +17,7 @@ pub struct Grid {
     corners: Option<[char; 4]>,
 
     cursor: (usize, usize),
+    cursor_direction: Direction,
     last_move: Instant,
 
     inner: Vec<Vec<Cell>>,
@@ -101,7 +102,11 @@ impl From<String> for Grid {
     fn from(value: String) -> Self {
         let mut res = Grid::empty();
 
-        value.lines().for_each(|line| res.add_line(Some(line)));
+        if value.is_empty() {
+            res.add_line(Some(" "))
+        } else {
+            value.lines().for_each(|line| res.add_line(Some(line)));
+        }
 
         res
     }
@@ -125,6 +130,7 @@ impl Grid {
             sides: '│',
             corners: Some(['╭', '╮', '╰', '╯']),
             cursor: Default::default(),
+            cursor_direction: Direction::Right,
             inner: vec![vec![CellValue::Empty.into(); width]; height],
             last_move: Instant::now(),
         }
@@ -166,7 +172,10 @@ impl Grid {
     }
 
     /// Moves cursor by an offset, possibly extending the grid to the right
-    pub fn move_cursor(&mut self, x: i32, y: i32) -> Result<(), (i32, i32)> {
+    pub fn move_cursor(&mut self, dir: Direction) -> Result<(), (i32, i32)> {
+        self.cursor_direction = dir;
+
+        let (x, y) = dir.into();
         let (og_x, og_y) = self.cursor;
         let (new_x, new_y) = (og_x as i32 + x, og_y as i32 + y);
 
@@ -201,6 +210,10 @@ impl Grid {
     /// Gets current cursor position
     pub fn get_cursor(&self) -> (usize, usize) {
         self.cursor
+    }
+
+    pub fn get_cursor_dir(&self) -> Direction {
+        self.cursor_direction
     }
 
     /// Returns size tuple

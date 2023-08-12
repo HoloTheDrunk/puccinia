@@ -187,6 +187,37 @@ pub enum Direction {
     Random,
 }
 
+impl From<(i32, i32)> for Direction {
+    fn from(value: (i32, i32)) -> Self {
+        let (x, y) = value;
+        match (x.signum(), y.signum()) {
+            (0, -1) => Self::Up,
+            (0, 1) => Self::Down,
+            (-1, 0) => Self::Left,
+            (1, 0) => Self::Right,
+            _ => panic!("Invalid direction {value:?}"),
+        }
+    }
+}
+
+impl From<Direction> for (i32, i32) {
+    fn from(val: Direction) -> Self {
+        match val {
+            Direction::Up => (0, -1),
+            Direction::Down => (0, 1),
+            Direction::Left => (-1, 0),
+            Direction::Right => (1, 0),
+            Direction::Random => match (rand::random::<bool>(), rand::random::<bool>()) {
+                (false, false) => Direction::Down,
+                (false, true) => Direction::Up,
+                (true, false) => Direction::Left,
+                (true, true) => Direction::Right,
+            }
+            .into(),
+        }
+    }
+}
+
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
 #[derive(Clone, Debug, Copy)]
 pub enum NullaryOperator {

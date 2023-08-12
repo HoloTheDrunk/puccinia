@@ -6,7 +6,10 @@ use std::{
 
 use tui::style::Color;
 
-use crate::{cell::CellValue, grid::Grid};
+use crate::{
+    cell::{CellValue, Direction},
+    grid::Grid,
+};
 
 use {
     crossterm::{
@@ -39,10 +42,17 @@ pub enum Error {
 type Result<T> = anyhow::Result<T, Error>;
 
 #[derive(Default, Debug)]
+struct Config {
+    stack_area_width: u16,
+    stack_area_on_right: bool,
+}
+
+#[derive(Default, Debug)]
 struct State {
     mode: EditorMode,
     grid: Grid,
     tooltip: Option<Tooltip>,
+    config: Config,
 }
 
 #[derive(Default, Debug)]
@@ -50,6 +60,8 @@ enum EditorMode {
     #[default]
     /// Mode for moving around efficiently and running commands
     Normal,
+    /// Command input mode
+    Command(String),
     /// Text edition mode
     Insert,
     /// Running state
@@ -59,8 +71,8 @@ enum EditorMode {
 #[derive(Clone, Debug)]
 #[allow(unused)]
 pub enum Tooltip {
+    Command(String),
     Error(String),
-    Help,
 }
 
 #[derive(Debug)]
@@ -93,12 +105,16 @@ fn wrapper<B: Backend>(
 ) -> Result<()> {
     let mut state = State {
         grid: Grid::new(10, 10),
+        config: Config {
+            stack_area_width: 32,
+            stack_area_on_right: false,
+        },
         ..Default::default()
     };
 
     main_loop(terminal, &mut state, &receiver, &sender)?;
 
-    wait_for_exit().map_err(|err| Error::Terminal(err))?;
+    // wait_for_exit().map_err(|err| Error::Terminal(err))?;
 
     Ok(())
 }
@@ -195,19 +211,53 @@ fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Resul
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
-    let size = f.size();
+    let frame_size = f.size();
 
-    f.render_widget(Block::default().title("MST").borders(Borders::ALL), size);
+    let mut grid_area = frame_size.clone();
+    let mut stack_area = frame_size.clone();
+
+    if frame_size.width > state.config.stack_area_width {
+        grid_area.width -= state.config.stack_area_width;
+        stack_area.width = state.config.stack_area_width;
+
+        if state.config.stack_area_on_right {
+            stack_area.x = grid_area.width;
+        } else {
+            grid_area.x += state.config.stack_area_width;
+        }
+
+        f.render_widget(
+            Block::default().title("Stack").borders(Borders::ALL),
+            stack_area,
+        );
+    }
+
+    f.render_widget(
+        Block::default()
+            .title("MST")
+            .borders(Borders::ALL)
+            .style(Style::default().fg(match state.mode {
+                EditorMode::Normal => Color::White,
+                EditorMode::Command(_) => Color::DarkGray,
+                EditorMode::Insert => Color::Yellow,
+                EditorMode::Running => Color::Red,
+            })),
+        grid_area,
+    );
 
     f.render_widget(
         state.grid.clone(),
-        size.inner(&Margin {
-            vertical: 5,
-            horizontal: 5,
+        grid_area.inner(&Margin {
+            vertical: 1,
+            horizontal: 1,
         }),
     );
 
-    render_tooltip(f, state);
+    if let EditorMode::Command(ref cmd) = state.mode {
+        state.tooltip = Some(Tooltip::Command(cmd.clone()));
+    }
+
+    render_tooltip(f, grid_area, state);
 }
 
 fn handle_events(state: &mut State) -> Result<bool> {
@@ -215,6 +265,9 @@ fn handle_events(state: &mut State) -> Result<bool> {
         match crossterm::event::read() {
             Ok(Event::Key(KeyEvent { code, .. })) => match state.mode {
                 EditorMode::Normal => return handle_events_normal_mode(code, state),
+                EditorMode::Command(ref cmd) => {
+                    return handle_events_command_mode(code, cmd.clone(), state)
+                }
                 EditorMode::Insert => {
                     handle_events_insert_mode(code, state);
                 }
@@ -232,13 +285,10 @@ fn handle_events(state: &mut State) -> Result<bool> {
 
 fn handle_events_running_mode(code: KeyCode, state: &mut State) {
     match code {
-        KeyCode::Char(c) => {
-            todo!();
-        }
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;
         }
-        _ => todo!(),
+        _ => (),
     }
 }
 
@@ -246,12 +296,49 @@ fn handle_events_insert_mode(code: KeyCode, state: &mut State) {
     match code {
         KeyCode::Char(c) => {
             state.grid.set_current(CellValue::from(c));
+            // Ignore OOB errors when auto moving
+            if let Err(_) = state.grid.move_cursor(state.grid.get_cursor_dir()) {
+                ()
+            }
         }
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;
         }
-        _ => todo!(),
+        _ => (),
     }
+}
+
+fn handle_events_command_mode(code: KeyCode, mut cmd: String, state: &mut State) -> Result<bool> {
+    match code {
+        KeyCode::Char(c) => {
+            cmd.push(c);
+            state.mode = EditorMode::Command(cmd);
+        }
+        KeyCode::Enter => {
+            state.mode = EditorMode::Normal;
+            return handle_command(cmd.as_ref(), state);
+        }
+        KeyCode::Esc => {
+            state.mode = EditorMode::Normal;
+            state.tooltip = None;
+        }
+        KeyCode::Backspace => {
+            cmd.pop();
+            state.mode = EditorMode::Command(cmd);
+        }
+        _ => (),
+    }
+
+    Ok(false)
+}
+
+fn handle_command(cmd: &str, state: &mut State) -> Result<bool> {
+    match cmd {
+        "q" => return Ok(true),
+        _ => state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`"))),
+    }
+
+    Ok(false)
 }
 
 fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
@@ -263,44 +350,63 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
         KeyCode::Char('i') => {
             state.mode = EditorMode::Insert;
         }
+        KeyCode::Char(':') => {
+            state.mode = EditorMode::Command(String::new());
+        }
+        KeyCode::Char('f') => {
+            state.config.stack_area_on_right = !state.config.stack_area_on_right;
+        }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             if let Err(err) = match c {
-                'h' => state.grid.move_cursor(-1, 0),
-                'j' => state.grid.move_cursor(0, 1),
-                'k' => state.grid.move_cursor(0, -1),
-                'l' => state.grid.move_cursor(1, 0),
+                'h' => state.grid.move_cursor(Direction::Left),
+                'j' => state.grid.move_cursor(Direction::Down),
+                'k' => state.grid.move_cursor(Direction::Up),
+                'l' => state.grid.move_cursor(Direction::Right),
                 _ => unreachable!(),
             } {
-                state.tooltip = Some(Tooltip::Error(format!(
-                    "Invalid move (out of bounds): {err:?}"
-                )));
+                state.tooltip = Some(Tooltip::Error(format!("Invalid move destination: {err:?}")));
             }
         }
-        _ => todo!(),
+        KeyCode::Esc => state.tooltip = None,
+        _ => (),
     }
 
     Ok(false)
 }
 
-fn render_tooltip<B: Backend>(frame: &mut Frame<B>, state: &State) {
-    let size = frame.size();
-
+fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
     if let Some(tooltip) = state.tooltip.clone() {
-        match tooltip {
-            Tooltip::Help => (),
-            Tooltip::Error(err) => {
-                let trunc = err.as_str().truncate_ellipse((size.width - 10) as usize);
-                frame.render_widget(
-                    Paragraph::new(trunc.clone()).style(Style::default().fg(Color::Red)),
-                    Rect {
-                        x: 0,
-                        y: size.bottom() - 1,
-                        width: trunc.len() as u16,
-                        height: 1,
-                    },
-                )
-            }
-        }
+        let (title, content, style) = match tooltip {
+            Tooltip::Command(cmd) => ("Command", cmd, Style::default().fg(Color::Yellow)),
+            Tooltip::Error(err) => ("Error", err, Style::default().fg(Color::Red)),
+        };
+
+        let trunc = content
+            .as_str()
+            .truncate_ellipse((area.width - 10) as usize);
+
+        let command_area = Rect {
+            x: area.left(),
+            y: area.bottom() - 3,
+            width: (trunc.len() as u16).max(title.len() as u16) + 2,
+            height: 3,
+        };
+
+        frame.render_widget(
+            Block::default()
+                .title(title)
+                .borders(Borders::ALL)
+                .style(style),
+            command_area,
+        );
+
+        frame.render_widget(
+            Paragraph::new(trunc.clone()).style(style),
+            command_area.inner(&Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+        );
     }
 }
 

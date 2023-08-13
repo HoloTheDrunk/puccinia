@@ -41,9 +41,10 @@ pub enum Message {
 
 #[derive(Debug)]
 pub enum RunningCommand {
-    Start,
+    Start(Vec<(usize, usize)>),
     Step,
     SkipToBreakpoint,
+    ToggleBreakpoint,
 }
 
 #[derive(Debug, Default)]
@@ -98,11 +99,16 @@ pub(crate) fn run(
                 state.grid = Grid::from(grid);
             }
             Message::RunningCommand(command) => match command {
-                RunningCommand::Start => {
+                RunningCommand::Start(breakpoints) => {
                     state.grid.set_cursor(0, 0).unwrap();
                     state.grid.set_cursor_dir(Direction::Right);
                     state.grid.clear_heat();
+                    state.grid.clear_breakpoints();
                     state.stack.clear();
+
+                    breakpoints
+                        .iter()
+                        .for_each(|(x, y)| state.grid.toggle_breakpoint(*x, *y));
                 }
                 RunningCommand::Step => match step(&sender, &mut state)? {
                     RunStatus::Continue => (),
@@ -119,6 +125,7 @@ pub(crate) fn run(
                         }
                     }
                 },
+                RunningCommand::ToggleBreakpoint => state.grid.toggle_current_breakpoint(),
             },
         }
     }

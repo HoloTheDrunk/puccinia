@@ -1,4 +1,7 @@
-use tui::{layout::Rect, widgets::StatefulWidget};
+use tui::{
+    layout::{Margin, Rect},
+    widgets::StatefulWidget,
+};
 
 use crate::{
     cell::{Cell, CellValue, Direction},
@@ -112,6 +115,20 @@ impl StatefulWidget for Grid {
             Rect::new(x, y, 1, 1),
             cursor_style.add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
         );
+
+        // BreakPoint
+        let bp_positions = self.get_breakpoints();
+
+        for (x, y) in bp_positions {
+            let target = Rect {
+                x: area.left() + 2 + x as u16 * 2,
+                y: area.top() + 1 + y as u16,
+                width: 1,
+                height: 1,
+            };
+
+            buf.set_style(target, Style::default().bg(Color::Rgb(64, 64, 64)));
+        }
     }
 
     // fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
@@ -293,6 +310,39 @@ impl Grid {
     pub fn set_current(&mut self, val: CellValue) {
         let (x, y) = self.cursor;
         self.set(x, y, val);
+    }
+
+    pub fn get_breakpoints(&self) -> Vec<(usize, usize)> {
+        self.inner
+            .iter()
+            .enumerate()
+            .flat_map(|(y, line)| {
+                line.iter()
+                    .enumerate()
+                    .flat_map(|(x, cell)| cell.is_breakpoint.then_some((x, y)))
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>()
+    }
+
+    #[inline]
+    /// Toggle breakpoint at position
+    pub fn toggle_breakpoint(&mut self, x: usize, y: usize) {
+        self.inner.get_mut(y).unwrap()[x].is_breakpoint = !self.get(x, y).is_breakpoint;
+    }
+
+    /// Toggle breakpoint under cursor
+    pub fn toggle_current_breakpoint(&mut self) {
+        let (x, y) = self.cursor;
+        self.toggle_breakpoint(x, y);
+    }
+
+    pub fn clear_breakpoints(&mut self) {
+        for line in &mut self.inner {
+            for cell in line {
+                cell.is_breakpoint = false;
+            }
+        }
     }
 
     #[inline]

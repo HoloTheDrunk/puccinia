@@ -5,17 +5,22 @@ use tui::{
 };
 
 /// Represents a single cell of the grid.
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Default, Copy)]
 pub struct Cell {
-    /// The content of the cell
+    /// The content of the cell.
     pub value: CellValue,
-    /// Heat represents how long ago the cell was last "visited" by a cursor.
+    /// Heat represents how recently the cell was last "visited" by a cursor.
     pub heat: u8,
+    pub is_breakpoint: bool,
 }
 
 impl From<CellValue> for Cell {
     fn from(value: CellValue) -> Self {
-        Cell { value, heat: 0 }
+        Cell {
+            value,
+            heat: 0,
+            is_breakpoint: false,
+        }
     }
 }
 
@@ -26,8 +31,9 @@ impl From<char> for Cell {
 }
 
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Default, Copy)]
 pub enum CellValue {
+    #[default]
     Empty,
     Op(Operator),
     Dir(Direction),
@@ -192,6 +198,7 @@ macro_rules! char_mapping {
     };
 }
 
+// FIXME: Broken Green color, may be due to terminal theme
 char_mapping! {
     NullaryOperator:
         Integer = '&' => Red,

@@ -342,6 +342,11 @@ fn handle_events_running_mode(
         KeyCode::Char(' ') => {
             sender.send(logic::Message::RunningCommand(logic::RunningCommand::Step))?;
         }
+        KeyCode::Char('b') => {
+            sender.send(logic::Message::RunningCommand(
+                logic::RunningCommand::ToggleBreakpoint,
+            ))?;
+        }
         _ => (),
     }
 
@@ -448,7 +453,9 @@ fn handle_command(
 
             state.mode = EditorMode::Running;
 
-            sender.send(logic::Message::RunningCommand(logic::RunningCommand::Start))?;
+            sender.send(logic::Message::RunningCommand(
+                logic::RunningCommand::Start(state.grid.get_breakpoints()),
+            ))?;
         }
         _ => state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`"))),
     }
@@ -464,6 +471,9 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool
         KeyCode::Char('f') => {
             state.config.run_area_on_right = !state.config.run_area_on_right;
         }
+        KeyCode::Char('b') => {
+            state.grid.toggle_current_breakpoint();
+        }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             match c {
                 'h' => state.grid.move_cursor(Direction::Left, true),
@@ -472,9 +482,6 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool
                 'l' => state.grid.move_cursor(Direction::Right, true),
                 _ => unreachable!(),
             };
-            // } {
-            //     state.tooltip = Some(Tooltip::Error(format!("Invalid move destination: {err:?}")));
-            // }
         }
         KeyCode::Esc => state.tooltip = None,
         _ => (),

@@ -90,6 +90,7 @@ pub enum Message {
     LogicFail(Option<String>),
     PopupToggle(Tooltip),
     SetCell { x: usize, y: usize, v: char },
+    LeaveRunningMode,
 }
 
 pub(crate) fn run(
@@ -215,6 +216,7 @@ fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Resul
             }
             Message::PopupToggle(_) => todo!(),
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
+            Message::LeaveRunningMode => state.mode = EditorMode::Normal,
         },
         Err(err) => match err {
             TryRecvError::Empty => (),

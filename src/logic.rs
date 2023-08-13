@@ -70,10 +70,7 @@ pub(crate) fn run(
         string_mode: false,
     };
 
-    sender.send(frontend::Message::Load((
-        state.grid.clone(),
-        state.stack.clone(),
-    )))?;
+    update_frontend(&sender, &state)?;
 
     // Event loop
     while let Ok(message) = receiver.recv() {
@@ -91,13 +88,35 @@ pub(crate) fn run(
             }
             Message::RunningCommand(command) => match command {
                 RunningCommand::Start => state.stack.clear(),
-                RunningCommand::Step => todo!(),
-                RunningCommand::SkipToBreakpoint => todo!(),
+                RunningCommand::Step => match step(&sender, &mut state)? {
+                    RunStatus::Continue => (),
+                    RunStatus::Breakpoint => todo!(),
+                    RunStatus::End => sender.send(frontend::Message::LeaveRunningMode)?,
+                },
+                RunningCommand::SkipToBreakpoint => loop {
+                    match step(&sender, &mut state)? {
+                        RunStatus::Continue => (),
+                        RunStatus::Breakpoint => break,
+                        RunStatus::End => {
+                            sender.send(frontend::Message::LeaveRunningMode)?;
+                            break;
+                        }
+                    }
+                },
             },
         }
     }
 
     sender.send(frontend::Message::Break)?;
+
+    Ok(())
+}
+
+fn update_frontend(sender: &Sender<crate::frontend::Message>, state: &State) -> AnyResult<()> {
+    sender.send(frontend::Message::Load((
+        state.grid.clone(),
+        state.stack.clone(),
+    )))?;
 
     Ok(())
 }
@@ -108,7 +127,8 @@ enum RunStatus {
     End,
 }
 
-fn step(state: &mut State) -> RunStatus {
+/// Run a single step, updating the frontend as required.
+fn step(sender: &Sender<crate::frontend::Message>, state: &mut State) -> AnyResult<RunStatus> {
     let cell = state.grid.get_current();
 
     match cell.value {
@@ -150,7 +170,7 @@ fn step(state: &mut State) -> RunStatus {
             }
         }
 
-        CellValue::End => return RunStatus::End,
+        CellValue::End => return Ok(RunStatus::End),
     }
 
     if state
@@ -161,5 +181,8 @@ fn step(state: &mut State) -> RunStatus {
         ()
     };
 
-    todo!()
+    // sender.send(frontend::Message::MoveCursor(state.grid.get_cursor()))?;
+    update_frontend(sender, state)?;
+
+    Ok(RunStatus::Continue)
 }

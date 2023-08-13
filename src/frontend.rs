@@ -1,5 +1,5 @@
 use std::{
-    io::Stdout,
+    io::{Stdout, Write},
     sync::mpsc::{self, Receiver, Sender, TryRecvError},
     time::{Duration, Instant},
 };
@@ -9,6 +9,7 @@ use tui::style::Color;
 use crate::{
     cell::{CellValue, Direction},
     grid::Grid,
+    logic,
 };
 
 use {
@@ -32,16 +33,16 @@ pub enum Error {
     #[error("Unknown error: {0}")]
     Unknown(String),
     #[error("Channel receive error: {0:?}")]
-    ChannelRecv(mpsc::TryRecvError),
+    ChannelRecv(#[from] mpsc::TryRecvError),
     #[error("Channel send error: {0:?}")]
-    ChannelSend(mpsc::SendError<crate::logic::Message>),
+    ChannelSend(#[from] mpsc::SendError<logic::Message>),
     #[error("Terminal failure: {0:?}")]
-    Terminal(std::io::Error),
+    Terminal(#[from] std::io::Error),
     #[error("Terminated by logic thread")]
     Terminated,
 }
 
-type Result<T> = anyhow::Result<T, Error>;
+type AnyResult<T> = anyhow::Result<T, Error>;
 
 #[derive(Default, Debug)]
 struct Config {
@@ -57,13 +58,14 @@ struct State {
 
     grid: Grid,
     stack: Vec<i32>,
+    output: String,
 
     tooltip: Option<Tooltip>,
     config: Config,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
-enum EditorMode {
+pub enum EditorMode {
     #[default]
     /// Mode for moving around efficiently and running commands
     Normal,
@@ -94,15 +96,12 @@ pub enum Message {
     LeaveRunningMode,
 }
 
-pub(crate) fn run(
-    receiver: Receiver<Message>,
-    sender: Sender<crate::logic::Message>,
-) -> Result<()> {
-    let mut terminal = setup_terminal().map_err(|err| Error::Terminal(err))?;
+pub(crate) fn run(receiver: Receiver<Message>, sender: Sender<logic::Message>) -> AnyResult<()> {
+    let mut terminal = setup_terminal()?;
 
     let res = wrapper(&mut terminal, receiver, &sender);
 
-    restore_terminal(terminal, &sender).map_err(|err| Error::Terminal(err))?;
+    restore_terminal(terminal, &sender)?;
 
     res
 }
@@ -110,21 +109,19 @@ pub(crate) fn run(
 fn wrapper<B: Backend>(
     terminal: &mut Terminal<B>,
     receiver: Receiver<Message>,
-    sender: &Sender<crate::logic::Message>,
-) -> Result<()> {
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
     let mut state = State {
         grid: Grid::new(10, 10),
         config: Config {
             run_area_width: 32,
             run_area_on_right: false,
-            output_area_height: 32,
+            output_area_height: 24,
         },
         ..Default::default()
     };
 
     main_loop(terminal, &mut state, &receiver, &sender)?;
-
-    // wait_for_exit().map_err(|err| Error::Terminal(err))?;
 
     Ok(())
 }
@@ -142,9 +139,9 @@ fn setup_terminal() -> std::io::Result<Terminal<CrosstermBackend<Stdout>>> {
 
 fn restore_terminal<B: Backend + std::io::Write>(
     mut terminal: Terminal<B>,
-    sender: &Sender<crate::logic::Message>,
+    sender: &Sender<logic::Message>,
 ) -> std::io::Result<()> {
-    sender.send(crate::logic::Message::Kill).unwrap();
+    sender.send(logic::Message::Kill).unwrap();
 
     disable_raw_mode()?;
 
@@ -163,8 +160,8 @@ fn main_loop<B: Backend>(
     terminal: &mut Terminal<B>,
     state: &mut State,
     receiver: &Receiver<Message>,
-    sender: &Sender<crate::logic::Message>,
-) -> Result<()> {
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
     let mut stop: bool;
     let mut last_frame = Instant::now();
     let target_fps = 30;
@@ -184,11 +181,9 @@ fn main_loop<B: Backend>(
 
         try_receive_message(state, receiver)?;
 
-        terminal
-            .draw(|f| {
-                ui(f, state);
-            })
-            .map_err(|err| Error::Terminal(err))?;
+        terminal.draw(|f| {
+            ui(f, state);
+        })?;
 
         if stop {
             break;
@@ -198,7 +193,7 @@ fn main_loop<B: Backend>(
     Ok(())
 }
 
-fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Result<()> {
+fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> AnyResult<()> {
     match receiver.try_recv() {
         Ok(msg) => match msg {
             Message::Load((grid, stack)) => {
@@ -234,7 +229,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     let mut grid_area = frame_size.clone();
     let mut stack_area = frame_size.clone();
 
-    // Don't render the stack area if the terminal is too thin
+    // Don't render the run area if the terminal is too thin
     if frame_size.width > state.config.run_area_width {
         grid_area.width -= state.config.run_area_width;
         stack_area.width = state.config.run_area_width;
@@ -256,6 +251,22 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
         );
 
         f.render_widget(
+            Paragraph::new(
+                state
+                    .stack
+                    .iter()
+                    .map(|v| v.to_string())
+                    .rev()
+                    .collect::<Vec<String>>()
+                    .join("\n"),
+            ),
+            stack_area.inner(&Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
+
+        f.render_widget(
             Block::default().title("Output").borders(Borders::ALL),
             output_area,
         );
@@ -274,12 +285,13 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
         grid_area,
     );
 
-    f.render_widget(
+    f.render_stateful_widget(
         state.grid.clone(),
         grid_area.inner(&Margin {
             vertical: 1,
             horizontal: 1,
         }),
+        &mut state.mode,
     );
 
     if let EditorMode::Command(ref cmd) = state.mode {
@@ -289,7 +301,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     render_tooltip(f, grid_area, state);
 }
 
-fn handle_events(state: &mut State, sender: &Sender<crate::logic::Message>) -> Result<bool> {
+fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResult<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
             Ok(Event::Key(KeyEvent { code, .. })) => match (code, state.mode.clone()) {
@@ -306,7 +318,7 @@ fn handle_events(state: &mut State, sender: &Sender<crate::logic::Message>) -> R
                         handle_events_insert_mode(code, state, sender)?;
                     }
                     EditorMode::Running => {
-                        handle_events_running_mode(code, state);
+                        handle_events_running_mode(code, state, sender)?;
                     }
                 },
             },
@@ -318,22 +330,38 @@ fn handle_events(state: &mut State, sender: &Sender<crate::logic::Message>) -> R
     Ok(false)
 }
 
-fn handle_events_running_mode(code: KeyCode, state: &mut State) {
+fn handle_events_running_mode(
+    code: KeyCode,
+    state: &mut State,
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
     match code {
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;
         }
+        KeyCode::Char(' ') => {
+            sender.send(logic::Message::RunningCommand(logic::RunningCommand::Step))?;
+        }
         _ => (),
     }
+
+    Ok(())
 }
 
 fn handle_events_insert_mode(
     code: KeyCode,
     state: &mut State,
-    sender: &Sender<crate::logic::Message>,
-) -> Result<()> {
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
     match code {
         KeyCode::Char(c) => {
+            let mut log = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("test.log")
+                .unwrap();
+            log.write_all(format!("Wrote {c} at {:?}\n", state.grid.get_cursor()).as_bytes())
+                .unwrap();
             state.grid.set_current(CellValue::from(c));
             state.grid.move_cursor(state.grid.get_cursor_dir(), true);
         }
@@ -347,9 +375,7 @@ fn handle_events_insert_mode(
         }
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;
-            sender
-                .send(crate::logic::Message::Sync(state.grid.dump()))
-                .map_err(|err| Error::ChannelSend(err))?;
+            sender.send(logic::Message::Sync(state.grid.dump()))?;
         }
         _ => (),
     }
@@ -361,8 +387,8 @@ fn handle_events_command_mode(
     code: KeyCode,
     mut cmd: String,
     state: &mut State,
-    sender: &Sender<crate::logic::Message>,
-) -> Result<bool> {
+    sender: &Sender<logic::Message>,
+) -> AnyResult<bool> {
     let exit_command_mode = |state: &mut State| {
         if let Some(mode) = state.previous_mode.as_ref() {
             state.mode = mode.clone();
@@ -399,27 +425,38 @@ fn handle_events_command_mode(
 fn handle_command(
     cmd: &str,
     state: &mut State,
-    sender: &Sender<crate::logic::Message>,
-) -> Result<bool> {
+    sender: &Sender<logic::Message>,
+) -> AnyResult<bool> {
     match cmd.trim().as_bytes() {
         b"" => (),
         b"q" => return Ok(true),
         [b'w', path @ ..] => {
             let path = String::from_utf8(path.to_vec()).expect("Provided write path is not UTF-8");
             sender
-                .send(crate::logic::Message::Write(
+                .send(logic::Message::Write(
                     (!path.trim().is_empty()).then(|| path.trim().to_owned()),
                 ))
                 .unwrap();
         }
-        b"run" => state.mode = EditorMode::Running,
+        b"run" => {
+            state.grid.set_cursor(0, 0).unwrap();
+            state.grid.set_cursor_dir(Direction::Right);
+            state.grid.clear_heat();
+
+            state.stack = Vec::new();
+            state.output = String::new();
+
+            state.mode = EditorMode::Running;
+
+            sender.send(logic::Message::RunningCommand(logic::RunningCommand::Start))?;
+        }
         _ => state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`"))),
     }
 
     Ok(false)
 }
 
-fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
+fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool> {
     match code {
         KeyCode::Char('i') => {
             state.mode = EditorMode::Insert;
@@ -444,15 +481,6 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
     }
 
     Ok(false)
-}
-
-fn update_mode(mode: EditorMode, state: &mut State) {
-    if let Some(mode) = state.previous_mode.as_ref() {
-        state.mode = mode.clone();
-        state.previous_mode = None;
-    } else {
-        state.mode = EditorMode::Normal;
-    }
 }
 
 fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
@@ -489,19 +517,4 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
             }),
         );
     }
-}
-
-fn wait_for_exit() -> std::io::Result<()> {
-    loop {
-        match crossterm::event::read() {
-            Ok(Event::Key(KeyEvent {
-                code: KeyCode::Char('q'),
-                ..
-            })) => break,
-            Err(err) => return Err(err),
-            _ => (),
-        }
-    }
-
-    Ok(())
 }

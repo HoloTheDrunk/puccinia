@@ -1,6 +1,9 @@
-use tui::layout::Rect;
+use tui::{layout::Rect, widgets::StatefulWidget};
 
-use crate::cell::{Cell, CellValue, Direction};
+use crate::{
+    cell::{Cell, CellValue, Direction},
+    frontend::EditorMode,
+};
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -29,8 +32,10 @@ pub struct Grid {
     inner: Vec<Vec<Cell>>,
 }
 
-impl Widget for Grid {
-    fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
+impl StatefulWidget for Grid {
+    type State = EditorMode;
+
+    fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, state: &mut Self::State) {
         let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
         let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;
 
@@ -91,14 +96,26 @@ impl Widget for Grid {
         let blink = self.last_move.elapsed() < Duration::from_millis(1000)
             || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
+        let cursor_color = match state {
+            EditorMode::Normal => Color::White,
+            EditorMode::Command(_) => Color::DarkGray,
+            EditorMode::Insert => Color::Yellow,
+            EditorMode::Running => Color::Red,
+        };
+        let cursor_style = if blink {
+            Style::default().bg(cursor_color)
+        } else {
+            Style::default().fg(cursor_color)
+        };
+
         buf.set_style(
             Rect::new(x, y, 1, 1),
-            Style::default()
-                .fg(if blink { Color::Reset } else { Color::Cyan })
-                .bg(if blink { Color::Cyan } else { Color::Reset })
-                .add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
+            cursor_style.add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
         );
     }
+
+    // fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
+    // }
 }
 
 impl Default for Grid {
@@ -189,9 +206,8 @@ impl Grid {
 
         let (x, y) = dir.into();
         let (og_x, og_y) = self.cursor;
-        let (mut new_x, mut new_y) = (og_x as i32 + x, og_y as i32 + y);
+        let (new_x, new_y) = (og_x as i32 + x, og_y as i32 + y);
 
-        let mut wrapped = false;
         let wrap = |val: i32, max: i32| {
             if val < 0 {
                 (true, max - 1)
@@ -201,23 +217,14 @@ impl Grid {
                 (false, val)
             }
         };
-        (wrapped, new_x) = wrap(new_x, self.width as i32);
-        (wrapped, new_y) = wrap(new_y, self.height as i32);
+        let (wrapped_x, new_x) = wrap(new_x, self.width as i32);
+        let (wrapped_y, new_y) = wrap(new_y, self.height as i32);
+        let wrapped = wrapped_x | wrapped_y;
 
-        // if new_x >= 0 && new_y >= 0 {
-        //     if new_x >= self.width as i32 {
-        //         self.add_column();
-        //     } else if new_y >= self.height as i32 {
-        //         self.add_line(None);
-        //     }
-        //
         self.set_cursor(new_x as usize, new_y as usize).expect(
             "Invalid move; this should be impossible, please contact the developer through a GitHub issue.",
         );
-        // .map_err(|(x, y)| (x as i32, y as i32));
-        // }
 
-        // Err((new_x, new_y))
         wrapped
     }
 
@@ -286,6 +293,34 @@ impl Grid {
     pub fn set_current(&mut self, val: CellValue) {
         let (x, y) = self.cursor;
         self.set(x, y, val);
+    }
+
+    #[inline]
+    /// Set cell heat at position to desire value
+    pub fn set_heat(&mut self, x: usize, y: usize, heat: u8) {
+        self.inner.get_mut(y).unwrap()[x].heat = heat;
+    }
+
+    /// Set cell heat under cursor to desired value
+    pub fn set_current_heat(&mut self, heat: u8) {
+        let (x, y) = self.cursor;
+        self.set_heat(x, y, heat);
+    }
+
+    pub fn reduce_heat(&mut self, amount: u8) {
+        for line in &mut self.inner {
+            for cell in line {
+                cell.heat = cell.heat.saturating_sub(amount);
+            }
+        }
+    }
+
+    pub fn clear_heat(&mut self) {
+        for line in &mut self.inner {
+            for cell in line {
+                cell.heat = 0;
+            }
+        }
     }
 
     /// Dump grid contents as a string.

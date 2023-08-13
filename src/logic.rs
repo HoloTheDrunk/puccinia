@@ -46,11 +46,23 @@ pub enum RunningCommand {
     SkipToBreakpoint,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 struct State {
     grid: Grid,
     stack: Vec<i32>,
     string_mode: bool,
+    config: Config,
+}
+
+#[derive(Debug)]
+struct Config {
+    heat_diffusion: u8,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self { heat_diffusion: 30 }
+    }
 }
 
 type AnyResult<T> = anyhow::Result<T>;
@@ -66,8 +78,7 @@ pub(crate) fn run(
             std::fs::read_to_string(path)
                 .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?,
         ),
-        stack: Vec::new(),
-        string_mode: false,
+        ..Default::default()
     };
 
     update_frontend(&sender, &state)?;
@@ -87,7 +98,12 @@ pub(crate) fn run(
                 state.grid = Grid::from(grid);
             }
             Message::RunningCommand(command) => match command {
-                RunningCommand::Start => state.stack.clear(),
+                RunningCommand::Start => {
+                    state.grid.set_cursor(0, 0).unwrap();
+                    state.grid.set_cursor_dir(Direction::Right);
+                    state.grid.clear_heat();
+                    state.stack.clear();
+                }
                 RunningCommand::Step => match step(&sender, &mut state)? {
                     RunStatus::Continue => (),
                     RunStatus::Breakpoint => todo!(),
@@ -166,6 +182,9 @@ fn step(sender: &Sender<crate::frontend::Message>, state: &mut State) -> AnyResu
 
         CellValue::End => return Ok(RunStatus::End),
     }
+
+    state.grid.set_current_heat(128);
+    state.grid.reduce_heat(state.config.heat_diffusion);
 
     state.grid.move_cursor(state.grid.get_cursor_dir(), false);
 

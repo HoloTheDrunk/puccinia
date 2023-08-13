@@ -10,7 +10,7 @@ pub struct Cell {
     /// The content of the cell
     pub value: CellValue,
     /// Heat represents how long ago the cell was last "visited" by a cursor.
-    pub heat: i8,
+    pub heat: u8,
 }
 
 impl From<CellValue> for Cell {
@@ -46,7 +46,7 @@ impl From<char> for CellValue {
             '\"' => CellValue::StringMode,
             '#' => CellValue::Bridge,
             '@' => CellValue::End,
-            v @ '0'..='9' => CellValue::Number(u32::from(v)),
+            v @ '0'..='9' => CellValue::Number(v.to_digit(10).unwrap()),
             c => {
                 if let Ok(op) = Operator::try_from(c) {
                     CellValue::Op(op)
@@ -96,10 +96,10 @@ impl From<&Cell> for Style {
                 CellValue::Number(_) => Color::Magenta,
                 CellValue::Char(_) => Color::White,
             })
-            .bg(if cell.heat == 0 {
-                Color::Reset
+            .bg(if cell.heat > 64 {
+                Color::Rgb((128. * (cell.heat as f32 / 128 as f32)) as u8, 0, 0)
             } else {
-                Color::Red
+                Color::Reset
             })
     }
 }

@@ -180,29 +180,45 @@ impl Grid {
         }
     }
 
-    /// Moves cursor by an offset, possibly extending the grid to the right
-    pub fn move_cursor(&mut self, dir: Direction, update_dir: bool) -> Result<(), (i32, i32)> {
+    /// Moves cursor by an offset, possibly extending the grid to the right. Returns whether or not
+    /// the cursor was wrapped around the grid.
+    pub fn move_cursor(&mut self, dir: Direction, update_dir: bool) -> bool {
         if update_dir {
             self.cursor_direction = dir;
         }
 
         let (x, y) = dir.into();
         let (og_x, og_y) = self.cursor;
-        let (new_x, new_y) = (og_x as i32 + x, og_y as i32 + y);
+        let (mut new_x, mut new_y) = (og_x as i32 + x, og_y as i32 + y);
 
-        if new_x >= 0 && new_y >= 0 {
-            if new_x as usize >= self.width {
-                self.add_column();
-            } else if new_y as usize >= self.height {
-                self.add_line(None);
+        let mut wrapped = false;
+        let wrap = |val: i32, max: i32| {
+            if val < 0 {
+                (true, max - 1)
+            } else if val >= max {
+                (true, 0)
+            } else {
+                (false, val)
             }
+        };
+        (wrapped, new_x) = wrap(new_x, self.width as i32);
+        (wrapped, new_y) = wrap(new_y, self.height as i32);
 
-            return self
-                .set_cursor(new_x as usize, new_y as usize)
-                .map_err(|(x, y)| (x as i32, y as i32));
-        }
+        // if new_x >= 0 && new_y >= 0 {
+        //     if new_x >= self.width as i32 {
+        //         self.add_column();
+        //     } else if new_y >= self.height as i32 {
+        //         self.add_line(None);
+        //     }
+        //
+        self.set_cursor(new_x as usize, new_y as usize).expect(
+            "Invalid move; this should be impossible, please contact the developer through a GitHub issue.",
+        );
+        // .map_err(|(x, y)| (x as i32, y as i32));
+        // }
 
-        Err((new_x, new_y))
+        // Err((new_x, new_y))
+        wrapped
     }
 
     /// Sets current cursor position

@@ -154,13 +154,7 @@ fn step(sender: &Sender<crate::frontend::Message>, state: &mut State) -> AnyResu
 
         CellValue::Bridge => {
             // TODO: remove move error, wrap around instead
-            if state
-                .grid
-                .move_cursor(state.grid.get_cursor_dir(), false)
-                .is_err()
-            {
-                ()
-            }
+            state.grid.move_cursor(state.grid.get_cursor_dir(), false);
         }
 
         CellValue::Number(num) => state.stack.push(num as i32),
@@ -173,13 +167,7 @@ fn step(sender: &Sender<crate::frontend::Message>, state: &mut State) -> AnyResu
         CellValue::End => return Ok(RunStatus::End),
     }
 
-    if state
-        .grid
-        .move_cursor(state.grid.get_cursor_dir(), false)
-        .is_err()
-    {
-        ()
-    };
+    state.grid.move_cursor(state.grid.get_cursor_dir(), false);
 
     // sender.send(frontend::Message::MoveCursor(state.grid.get_cursor()))?;
     update_frontend(sender, state)?;

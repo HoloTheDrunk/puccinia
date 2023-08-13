@@ -53,6 +53,7 @@ struct Config {
 #[derive(Default, Debug)]
 struct State {
     mode: EditorMode,
+    previous_mode: Option<EditorMode>,
 
     grid: Grid,
     stack: Vec<i32>,
@@ -61,7 +62,7 @@ struct State {
     config: Config,
 }
 
-#[derive(Default, Debug)]
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
 enum EditorMode {
     #[default]
     /// Mode for moving around efficiently and running commands
@@ -291,17 +292,23 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
 fn handle_events(state: &mut State, sender: &Sender<crate::logic::Message>) -> Result<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
-            Ok(Event::Key(KeyEvent { code, .. })) => match state.mode {
-                EditorMode::Normal => return handle_events_normal_mode(code, state),
-                EditorMode::Command(ref cmd) => {
-                    return handle_events_command_mode(code, cmd.clone(), state, sender)
+            Ok(Event::Key(KeyEvent { code, .. })) => match (code, state.mode.clone()) {
+                (KeyCode::Char(':'), EditorMode::Normal | EditorMode::Running) => {
+                    state.previous_mode = Some(state.mode.clone());
+                    state.mode = EditorMode::Command(String::new());
                 }
-                EditorMode::Insert => {
-                    handle_events_insert_mode(code, state, sender)?;
-                }
-                EditorMode::Running => {
-                    handle_events_running_mode(code, state);
-                }
+                _ => match state.mode {
+                    EditorMode::Normal => return handle_events_normal_mode(code, state),
+                    EditorMode::Command(ref cmd) => {
+                        return handle_events_command_mode(code, cmd.clone(), state, sender)
+                    }
+                    EditorMode::Insert => {
+                        handle_events_insert_mode(code, state, sender)?;
+                    }
+                    EditorMode::Running => {
+                        handle_events_running_mode(code, state);
+                    }
+                },
             },
             Err(err) => return Err(Error::Terminal(err)),
             _ => (),
@@ -328,13 +335,10 @@ fn handle_events_insert_mode(
     match code {
         KeyCode::Char(c) => {
             state.grid.set_current(CellValue::from(c));
-            // Ignore OOB errors when auto moving
-            if let Err(_) = state.grid.move_cursor(state.grid.get_cursor_dir(), true) {
-                ()
-            }
+            state.grid.move_cursor(state.grid.get_cursor_dir(), true);
         }
         KeyCode::Backspace => {
-            if let Ok(_) = state.grid.move_cursor(-state.grid.get_cursor_dir(), false) {
+            if !state.grid.move_cursor(-state.grid.get_cursor_dir(), false) {
                 state.grid.set_current(CellValue::from(' '));
             }
         }
@@ -359,18 +363,27 @@ fn handle_events_command_mode(
     state: &mut State,
     sender: &Sender<crate::logic::Message>,
 ) -> Result<bool> {
+    let exit_command_mode = |state: &mut State| {
+        if let Some(mode) = state.previous_mode.as_ref() {
+            state.mode = mode.clone();
+            state.previous_mode = None;
+        } else {
+            state.mode = EditorMode::Normal;
+        }
+    };
+
     match code {
         KeyCode::Char(c) => {
             cmd.push(c);
             state.mode = EditorMode::Command(cmd);
         }
         KeyCode::Enter => {
-            state.mode = EditorMode::Normal;
+            exit_command_mode(state);
             state.tooltip = None;
             return handle_command(cmd.as_ref(), state, sender);
         }
         KeyCode::Esc => {
-            state.mode = EditorMode::Normal;
+            exit_command_mode(state);
             state.tooltip = None;
         }
         KeyCode::Backspace => {
@@ -399,6 +412,7 @@ fn handle_command(
                 ))
                 .unwrap();
         }
+        b"run" => state.mode = EditorMode::Running,
         _ => state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`"))),
     }
 
@@ -407,35 +421,38 @@ fn handle_command(
 
 fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
     match code {
-        KeyCode::Char('q') => {
-            state.tooltip = Some(Tooltip::Error("Press 'q' to exit".to_owned()));
-            return Ok(true);
-        }
         KeyCode::Char('i') => {
             state.mode = EditorMode::Insert;
-        }
-        KeyCode::Char(':') => {
-            state.mode = EditorMode::Command(String::new());
         }
         KeyCode::Char('f') => {
             state.config.run_area_on_right = !state.config.run_area_on_right;
         }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
-            if let Err(err) = match c {
+            match c {
                 'h' => state.grid.move_cursor(Direction::Left, true),
                 'j' => state.grid.move_cursor(Direction::Down, true),
                 'k' => state.grid.move_cursor(Direction::Up, true),
                 'l' => state.grid.move_cursor(Direction::Right, true),
                 _ => unreachable!(),
-            } {
-                state.tooltip = Some(Tooltip::Error(format!("Invalid move destination: {err:?}")));
-            }
+            };
+            // } {
+            //     state.tooltip = Some(Tooltip::Error(format!("Invalid move destination: {err:?}")));
+            // }
         }
         KeyCode::Esc => state.tooltip = None,
         _ => (),
     }
 
     Ok(false)
+}
+
+fn update_mode(mode: EditorMode, state: &mut State) {
+    if let Some(mode) = state.previous_mode.as_ref() {
+        state.mode = mode.clone();
+        state.previous_mode = None;
+    } else {
+        state.mode = EditorMode::Normal;
+    }
 }
 
 fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {

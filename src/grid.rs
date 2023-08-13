@@ -227,6 +227,10 @@ impl Grid {
         self.cursor_direction
     }
 
+    pub fn set_cursor_dir(&mut self, dir: Direction) {
+        self.cursor_direction = dir;
+    }
+
     /// Returns size tuple
     pub fn size(&self) -> (usize, usize) {
         (self.width, self.height)
@@ -248,6 +252,12 @@ impl Grid {
     /// Get cell value at position
     pub fn get(&self, x: usize, y: usize) -> Cell {
         self.inner.get(y).unwrap()[x]
+    }
+
+    /// Get cell value at current position
+    pub fn get_current(&self) -> Cell {
+        let (x, y) = self.cursor;
+        self.get(x, y)
     }
 
     #[inline]

@@ -45,14 +45,18 @@ type Result<T> = anyhow::Result<T, Error>;
 
 #[derive(Default, Debug)]
 struct Config {
-    stack_area_width: u16,
-    stack_area_on_right: bool,
+    run_area_width: u16,
+    run_area_on_right: bool,
+    output_area_height: u16,
 }
 
 #[derive(Default, Debug)]
 struct State {
     mode: EditorMode,
+
     grid: Grid,
+    stack: Vec<i32>,
+
     tooltip: Option<Tooltip>,
     config: Config,
 }
@@ -81,7 +85,8 @@ pub enum Tooltip {
 #[allow(unused)]
 pub enum Message {
     Break,
-    Load(Grid),
+    MoveCursor((usize, usize)),
+    Load((Grid, Vec<i32>)),
     LogicFail(Option<String>),
     PopupToggle(Tooltip),
     SetCell { x: usize, y: usize, v: char },
@@ -108,8 +113,9 @@ fn wrapper<B: Backend>(
     let mut state = State {
         grid: Grid::new(10, 10),
         config: Config {
-            stack_area_width: 32,
-            stack_area_on_right: false,
+            run_area_width: 32,
+            run_area_on_right: false,
+            output_area_height: 32,
         },
         ..Default::default()
     };
@@ -193,8 +199,15 @@ fn main_loop<B: Backend>(
 fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Result<()> {
     match receiver.try_recv() {
         Ok(msg) => match msg {
-            Message::Load(content) => {
-                state.grid = Grid::from(content);
+            Message::Load((grid, stack)) => {
+                state.grid = Grid::from(grid);
+                state.stack = stack;
+            }
+            Message::MoveCursor((x, y)) => {
+                state
+                    .grid
+                    .set_cursor(x, y)
+                    .expect("Mismatch between frontend and logic threads' state");
             }
             Message::Break => return Err(Error::Terminated),
             Message::LogicFail(opt_msg) => {
@@ -219,25 +232,35 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     let mut stack_area = frame_size.clone();
 
     // Don't render the stack area if the terminal is too thin
-    if frame_size.width > state.config.stack_area_width {
-        grid_area.width -= state.config.stack_area_width;
-        stack_area.width = state.config.stack_area_width;
+    if frame_size.width > state.config.run_area_width {
+        grid_area.width -= state.config.run_area_width;
+        stack_area.width = state.config.run_area_width;
 
-        if state.config.stack_area_on_right {
+        if state.config.run_area_on_right {
             stack_area.x = grid_area.width;
         } else {
-            grid_area.x += state.config.stack_area_width;
+            grid_area.x += state.config.run_area_width;
         }
+
+        let mut output_area = stack_area.clone();
+        output_area.height = state.config.output_area_height;
+        output_area.y = stack_area.bottom() - state.config.output_area_height;
+        stack_area.height -= state.config.output_area_height;
 
         f.render_widget(
             Block::default().title("Stack").borders(Borders::ALL),
             stack_area,
         );
+
+        f.render_widget(
+            Block::default().title("Output").borders(Borders::ALL),
+            output_area,
+        );
     }
 
     f.render_widget(
         Block::default()
-            .title("MST")
+            .title("Editor")
             .borders(Borders::ALL)
             .style(Style::default().fg(match state.mode {
                 EditorMode::Normal => Color::White,
@@ -393,7 +416,7 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
             state.mode = EditorMode::Command(String::new());
         }
         KeyCode::Char('f') => {
-            state.config.stack_area_on_right = !state.config.stack_area_on_right;
+            state.config.run_area_on_right = !state.config.run_area_on_right;
         }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             if let Err(err) = match c {

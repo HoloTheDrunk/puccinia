@@ -3,7 +3,12 @@ use std::{
     time::Duration,
 };
 
-use crate::{cell::CellValue, frontend, grid::Grid, Args};
+use crate::{
+    cell::{CellValue, Direction, IfDir},
+    frontend,
+    grid::Grid,
+    Args,
+};
 
 #[derive(thiserror::Error, Clone, Debug)]
 #[allow(unused)]
@@ -23,8 +28,6 @@ pub enum FileError {
 #[allow(unused)]
 pub enum Message {
     Kill,
-    /// Synchronize grid status with frontend
-    GetGrid,
     /// Set value at pos
     SetCell {
         x: usize,
@@ -47,15 +50,16 @@ pub enum RunningCommand {
 struct State {
     grid: Grid,
     stack: Vec<i32>,
+    string_mode: bool,
 }
 
-type Result<T> = anyhow::Result<T>;
+type AnyResult<T> = anyhow::Result<T>;
 
 pub(crate) fn run(
     args: Args,
     sender: Sender<crate::frontend::Message>,
     receiver: Receiver<Message>,
-) -> Result<()> {
+) -> AnyResult<()> {
     let path = args.input.as_str();
     let mut state = State {
         grid: Grid::from(
@@ -63,18 +67,19 @@ pub(crate) fn run(
                 .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?,
         ),
         stack: Vec::new(),
+        string_mode: false,
     };
 
-    sender.send(frontend::Message::Load(state.grid.clone()))?;
+    sender.send(frontend::Message::Load((
+        state.grid.clone(),
+        state.stack.clone(),
+    )))?;
 
     // Event loop
     while let Ok(message) = receiver.recv() {
         match message {
             Message::Kill => {
                 break;
-            }
-            Message::GetGrid => {
-                sender.send(frontend::Message::Break)?;
             }
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
             Message::Write(Some(path)) => {
@@ -95,4 +100,66 @@ pub(crate) fn run(
     sender.send(frontend::Message::Break)?;
 
     Ok(())
+}
+
+enum RunStatus {
+    Continue,
+    Breakpoint,
+    End,
+}
+
+fn step(state: &mut State) -> RunStatus {
+    let cell = state.grid.get_current();
+
+    match cell.value {
+        CellValue::Empty => (),
+
+        CellValue::StringMode => state.string_mode = !state.string_mode,
+
+        CellValue::Op(_) => todo!(),
+        CellValue::Dir(dir) => state.grid.set_cursor_dir(dir),
+        CellValue::If(if_dir) => {
+            let (non_zero, zero) = match if_dir {
+                IfDir::Horizontal => (Direction::Left, Direction::Right),
+                IfDir::Vertical => (Direction::Up, Direction::Down),
+            };
+
+            let value = state.stack.pop();
+            if value.is_none() || value == Some(0) {
+                state.grid.set_cursor_dir(zero);
+            } else {
+                state.grid.set_cursor_dir(non_zero);
+            }
+        }
+
+        CellValue::Bridge => {
+            // TODO: remove move error, wrap around instead
+            if state
+                .grid
+                .move_cursor(state.grid.get_cursor_dir(), false)
+                .is_err()
+            {
+                ()
+            }
+        }
+
+        CellValue::Number(num) => state.stack.push(num as i32),
+        CellValue::Char(c) => {
+            if state.string_mode {
+                state.stack.push(c as i32)
+            }
+        }
+
+        CellValue::End => return RunStatus::End,
+    }
+
+    if state
+        .grid
+        .move_cursor(state.grid.get_cursor_dir(), false)
+        .is_err()
+    {
+        ()
+    };
+
+    todo!()
 }

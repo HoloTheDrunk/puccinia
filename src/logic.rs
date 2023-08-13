@@ -68,32 +68,27 @@ pub(crate) fn run(
     sender.send(frontend::Message::Load(state.grid.clone()))?;
 
     // Event loop
-    let mut exit = false;
-    while !exit {
-        // Handle all queued events
-        while let Ok(message) = receiver.try_recv() {
-            match message {
-                Message::Kill => {
-                    exit = true;
-                    break;
-                }
-                Message::GetGrid => {
-                    sender.send(frontend::Message::Break)?;
-                }
-                Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
-                Message::Write(Some(path)) => {
-                    std::fs::write(path, state.grid.dump())?;
-                }
-                Message::Write(None) => std::fs::write(path, state.grid.dump())?,
-                Message::Sync(grid) => {
-                    state.grid = Grid::from(grid);
-                }
-                Message::RunningCommand(command) => match command {
-                    RunningCommand::Start => state.stack.clear(),
-                    RunningCommand::Step => todo!(),
-                    RunningCommand::SkipToBreakpoint => todo!(),
-                },
+    while let Ok(message) = receiver.recv() {
+        match message {
+            Message::Kill => {
+                break;
             }
+            Message::GetGrid => {
+                sender.send(frontend::Message::Break)?;
+            }
+            Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
+            Message::Write(Some(path)) => {
+                std::fs::write(path, state.grid.dump())?;
+            }
+            Message::Write(None) => std::fs::write(path, state.grid.dump())?,
+            Message::Sync(grid) => {
+                state.grid = Grid::from(grid);
+            }
+            Message::RunningCommand(command) => match command {
+                RunningCommand::Start => state.stack.clear(),
+                RunningCommand::Step => todo!(),
+                RunningCommand::SkipToBreakpoint => todo!(),
+            },
         }
     }
 

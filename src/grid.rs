@@ -1,3 +1,5 @@
+use tui::layout::Rect;
+
 use crate::cell::{Cell, CellValue, Direction};
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -86,19 +88,11 @@ impl Widget for Grid {
 
         let (x, y) = self.cursor;
         let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
-        let val = buf.get(x, y).symbol.clone();
-        let blink = self.last_move.elapsed() < Duration::from_millis(500)
-            || SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                % 2
-                == 0;
+        let blink = self.last_move.elapsed() < Duration::from_millis(1000)
+            || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
-        buf.set_string(
-            x,
-            y,
-            val,
+        buf.set_style(
+            Rect::new(x, y, 1, 1),
             Style::default()
                 .fg(if blink { Color::Reset } else { Color::Cyan })
                 .bg(if blink { Color::Cyan } else { Color::Reset })

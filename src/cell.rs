@@ -187,6 +187,20 @@ pub enum Direction {
     Random,
 }
 
+impl std::ops::Neg for Direction {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            Direction::Up => Direction::Down,
+            Direction::Down => Direction::Up,
+            Direction::Left => Direction::Right,
+            Direction::Right => Direction::Left,
+            Direction::Random => self,
+        }
+    }
+}
+
 impl From<(i32, i32)> for Direction {
     fn from(value: (i32, i32)) -> Self {
         let (x, y) = value;

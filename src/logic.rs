@@ -31,6 +31,8 @@ pub enum Message {
         y: usize,
         v: char,
     },
+    Sync(String),
+    Write(Option<String>),
     RunningCommand(RunningCommand),
 }
 
@@ -54,10 +56,12 @@ pub(crate) fn run(
     sender: Sender<crate::frontend::Message>,
     receiver: Receiver<Message>,
 ) -> Result<()> {
+    let path = args.input.as_str();
     let mut state = State {
-        grid: Grid::from(std::fs::read_to_string(args.input.as_str()).map_err(|_| {
-            Error::FileError(FileError::FileNotFound(args.input.as_str().to_owned()))
-        })?),
+        grid: Grid::from(
+            std::fs::read_to_string(path)
+                .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?,
+        ),
         stack: Vec::new(),
     };
 
@@ -77,6 +81,13 @@ pub(crate) fn run(
                     sender.send(frontend::Message::Break)?;
                 }
                 Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
+                Message::Write(Some(path)) => {
+                    std::fs::write(path, state.grid.dump())?;
+                }
+                Message::Write(None) => std::fs::write(path, state.grid.dump())?,
+                Message::Sync(grid) => {
+                    state.grid = Grid::from(grid);
+                }
                 Message::RunningCommand(command) => match command {
                     RunningCommand::Start => state.stack.clear(),
                     RunningCommand::Step => todo!(),
@@ -84,8 +95,6 @@ pub(crate) fn run(
                 },
             }
         }
-
-        std::thread::sleep(Duration::from_secs(1));
     }
 
     sender.send(frontend::Message::Break)?;

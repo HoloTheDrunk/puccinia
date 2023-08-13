@@ -31,8 +31,10 @@ use {
 pub enum Error {
     #[error("Unknown error: {0}")]
     Unknown(String),
-    #[error("Channel error: {0:?}")]
-    Channel(mpsc::TryRecvError),
+    #[error("Channel receive error: {0:?}")]
+    ChannelRecv(mpsc::TryRecvError),
+    #[error("Channel send error: {0:?}")]
+    ChannelSend(mpsc::SendError<crate::logic::Message>),
     #[error("Terminal failure: {0:?}")]
     Terminal(std::io::Error),
     #[error("Terminated by logic thread")]
@@ -170,7 +172,7 @@ fn main_loop<B: Backend>(
 
         last_frame = now;
 
-        stop = handle_events(state)?;
+        stop = handle_events(state, sender)?;
 
         try_receive_message(state, receiver)?;
 
@@ -203,7 +205,7 @@ fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> Resul
         },
         Err(err) => match err {
             TryRecvError::Empty => (),
-            TryRecvError::Disconnected => return Err(Error::Channel(err)),
+            TryRecvError::Disconnected => return Err(Error::ChannelRecv(err)),
         },
     }
 
@@ -216,6 +218,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     let mut grid_area = frame_size.clone();
     let mut stack_area = frame_size.clone();
 
+    // Don't render the stack area if the terminal is too thin
     if frame_size.width > state.config.stack_area_width {
         grid_area.width -= state.config.stack_area_width;
         stack_area.width = state.config.stack_area_width;
@@ -260,16 +263,16 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     render_tooltip(f, grid_area, state);
 }
 
-fn handle_events(state: &mut State) -> Result<bool> {
+fn handle_events(state: &mut State, sender: &Sender<crate::logic::Message>) -> Result<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
             Ok(Event::Key(KeyEvent { code, .. })) => match state.mode {
                 EditorMode::Normal => return handle_events_normal_mode(code, state),
                 EditorMode::Command(ref cmd) => {
-                    return handle_events_command_mode(code, cmd.clone(), state)
+                    return handle_events_command_mode(code, cmd.clone(), state, sender)
                 }
                 EditorMode::Insert => {
-                    handle_events_insert_mode(code, state);
+                    handle_events_insert_mode(code, state, sender)?;
                 }
                 EditorMode::Running => {
                     handle_events_running_mode(code, state);
@@ -292,23 +295,45 @@ fn handle_events_running_mode(code: KeyCode, state: &mut State) {
     }
 }
 
-fn handle_events_insert_mode(code: KeyCode, state: &mut State) {
+fn handle_events_insert_mode(
+    code: KeyCode,
+    state: &mut State,
+    sender: &Sender<crate::logic::Message>,
+) -> Result<()> {
     match code {
         KeyCode::Char(c) => {
             state.grid.set_current(CellValue::from(c));
             // Ignore OOB errors when auto moving
-            if let Err(_) = state.grid.move_cursor(state.grid.get_cursor_dir()) {
+            if let Err(_) = state.grid.move_cursor(state.grid.get_cursor_dir(), true) {
                 ()
             }
         }
+        KeyCode::Backspace => {
+            if let Ok(_) = state.grid.move_cursor(-state.grid.get_cursor_dir(), false) {
+                state.grid.set_current(CellValue::from(' '));
+            }
+        }
+        KeyCode::Delete => {
+            state.grid.set_current(CellValue::from(' '));
+        }
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;
+            sender
+                .send(crate::logic::Message::Sync(state.grid.dump()))
+                .map_err(|err| Error::ChannelSend(err))?;
         }
         _ => (),
     }
+
+    Ok(())
 }
 
-fn handle_events_command_mode(code: KeyCode, mut cmd: String, state: &mut State) -> Result<bool> {
+fn handle_events_command_mode(
+    code: KeyCode,
+    mut cmd: String,
+    state: &mut State,
+    sender: &Sender<crate::logic::Message>,
+) -> Result<bool> {
     match code {
         KeyCode::Char(c) => {
             cmd.push(c);
@@ -316,7 +341,7 @@ fn handle_events_command_mode(code: KeyCode, mut cmd: String, state: &mut State)
         }
         KeyCode::Enter => {
             state.mode = EditorMode::Normal;
-            return handle_command(cmd.as_ref(), state);
+            return handle_command(cmd.as_ref(), state, sender);
         }
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;
@@ -332,9 +357,21 @@ fn handle_events_command_mode(code: KeyCode, mut cmd: String, state: &mut State)
     Ok(false)
 }
 
-fn handle_command(cmd: &str, state: &mut State) -> Result<bool> {
-    match cmd {
-        "q" => return Ok(true),
+fn handle_command(
+    cmd: &str,
+    state: &mut State,
+    sender: &Sender<crate::logic::Message>,
+) -> Result<bool> {
+    match cmd.as_bytes() {
+        b"q" => return Ok(true),
+        [b'w', path @ ..] => {
+            let path = String::from_utf8(path.to_vec()).expect("Provided write path is not UTF-8");
+            sender
+                .send(crate::logic::Message::Write(
+                    (!path.trim().is_empty()).then(|| path.trim().to_owned()),
+                ))
+                .unwrap();
+        }
         _ => state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`"))),
     }
 
@@ -358,10 +395,10 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> Result<bool> {
         }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             if let Err(err) = match c {
-                'h' => state.grid.move_cursor(Direction::Left),
-                'j' => state.grid.move_cursor(Direction::Down),
-                'k' => state.grid.move_cursor(Direction::Up),
-                'l' => state.grid.move_cursor(Direction::Right),
+                'h' => state.grid.move_cursor(Direction::Left, true),
+                'j' => state.grid.move_cursor(Direction::Down, true),
+                'k' => state.grid.move_cursor(Direction::Up, true),
+                'l' => state.grid.move_cursor(Direction::Right, true),
                 _ => unreachable!(),
             } {
                 state.tooltip = Some(Tooltip::Error(format!("Invalid move destination: {err:?}")));

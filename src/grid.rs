@@ -172,8 +172,10 @@ impl Grid {
     }
 
     /// Moves cursor by an offset, possibly extending the grid to the right
-    pub fn move_cursor(&mut self, dir: Direction) -> Result<(), (i32, i32)> {
-        self.cursor_direction = dir;
+    pub fn move_cursor(&mut self, dir: Direction, update_dir: bool) -> Result<(), (i32, i32)> {
+        if update_dir {
+            self.cursor_direction = dir;
+        }
 
         let (x, y) = dir.into();
         let (og_x, og_y) = self.cursor;
@@ -249,5 +251,25 @@ impl Grid {
     pub fn set_current(&mut self, val: CellValue) {
         let (x, y) = self.cursor;
         self.set(x, y, val);
+    }
+
+    /// Dump grid contents as a string.
+    pub fn dump(&self) -> String {
+        let mut res = String::new();
+
+        let cells = self
+            .inner
+            .iter()
+            .map(|v| v.iter().map(|cell| cell.value).collect::<Vec<_>>())
+            .collect::<Vec<_>>();
+
+        for line in cells {
+            for cell in line {
+                res.push(cell.into());
+            }
+            res.push('\n');
+        }
+
+        res
     }
 }

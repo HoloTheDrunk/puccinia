@@ -1,4 +1,8 @@
 use anyhow::anyhow;
+use tui::{
+    style::{Color, Style},
+    text::Span,
+};
 
 /// Represents a single cell of the grid.
 #[derive(Clone, Debug, Copy)]
@@ -72,6 +76,34 @@ impl From<CellValue> for char {
     }
 }
 
+impl<'s> From<&Cell> for Span<'s> {
+    fn from(cell: &Cell) -> Self {
+        Span::styled(char::from(cell.value).to_string(), cell.into())
+    }
+}
+
+impl From<&Cell> for Style {
+    fn from(cell: &Cell) -> Self {
+        Style::default()
+            .fg(match cell.value {
+                CellValue::Empty => Color::Reset,
+                CellValue::Op(op) => op.into(),
+                CellValue::Dir(dir) => dir.into(),
+                CellValue::If(cond) => cond.into(),
+                CellValue::StringMode => Color::Cyan,
+                CellValue::Bridge => Color::LightGreen,
+                CellValue::End => Color::Cyan,
+                CellValue::Number(_) => Color::Magenta,
+                CellValue::Char(_) => Color::White,
+            })
+            .bg(if cell.heat == 0 {
+                Color::Reset
+            } else {
+                Color::Red
+            })
+    }
+}
+
 #[cfg_attr(test, derive(Hash, PartialEq, Eq))]
 #[derive(Clone, Debug, Copy)]
 pub enum Operator {
@@ -110,8 +142,19 @@ impl From<Operator> for char {
     }
 }
 
+impl From<Operator> for Color {
+    fn from(value: Operator) -> Self {
+        match value {
+            Operator::Nullary(nullary) => Color::from(nullary),
+            Operator::Unary(unary) => Color::from(unary),
+            Operator::Binary(binary) => Color::from(binary),
+            Operator::Ternary(ternary) => Color::from(ternary),
+        }
+    }
+}
+
 macro_rules! char_mapping {
-    ($($enum:ident : $($variant:ident = $c:literal),* $(,)?);* $(;)?) => {
+    ($($enum:ident : $($variant:ident = $c:literal => $color:ident),* $(,)?);* $(;)?) => {
         $(
             impl TryFrom<char> for $enum {
                 type Error = anyhow::Error;
@@ -135,45 +178,55 @@ macro_rules! char_mapping {
                     }
                 }
             }
+
+            impl From<$enum> for Color {
+                fn from(value: $enum) -> Color {
+                    match value {
+                        $(
+                            $enum::$variant => Color::$color,
+                        )*
+                    }
+                }
+            }
         )*
     };
 }
 
 char_mapping! {
     NullaryOperator:
-        Integer = '&',
-        Ascii = '~';
+        Integer = '&' => Red,
+        Ascii = '~' => Red;
 
     UnaryOperator:
-        Negate = '!',
-        Duplicate = ':',
-        Pop = '$',
-        WriteNumber = '.',
-        WriteASCII = ',';
+        Negate = '!' => Yellow,
+        Duplicate = ':' => LightRed,
+        Pop = '$' => LightRed,
+        WriteNumber = '.' => Red,
+        WriteASCII = ',' => Red;
 
     BinaryOperator:
-        Greater = '`',
-        Add = '+',
-        Subtract = '-',
-        Multiply = '*',
-        Divide = '/',
-        Modulo = '%',
-        Swap = '\\',
-        Get = 'g';
+        Greater = '`' => Green,
+        Add = '+' => Yellow,
+        Subtract = '-' => Yellow,
+        Multiply = '*' => Yellow,
+        Divide = '/' => Yellow,
+        Modulo = '%' => Yellow,
+        Swap = '\\' => LightRed,
+        Get = 'g' => Magenta;
 
     TernaryOperator:
-        Put = 'p';
+        Put = 'p' => Magenta;
 
     IfDir:
-        Horizontal = '_',
-        Vertical = '|';
+        Horizontal = '_' => Green,
+        Vertical = '|' => Green;
 
     Direction:
-        Up = '^',
-        Down = 'v',
-        Left = '<',
-        Right = '>',
-        Random = '?';
+        Up = '^' => LightGreen,
+        Down = 'v' => LightGreen,
+        Left = '<' => LightGreen,
+        Right = '>' => LightGreen,
+        Random = '?' => LightGreen;
 }
 
 #[cfg_attr(test, derive(Hash, Eq))]

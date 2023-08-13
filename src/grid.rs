@@ -1,11 +1,15 @@
+use crate::cell::{Cell, CellValue, Direction};
+
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use tui::{
-    style::{Color, Modifier, Style},
-    widgets::Widget,
+use {
+    itertools::{intersperse, Itertools},
+    tui::{
+        style::{Color, Modifier, Style},
+        text::{Span, Spans},
+        widgets::Widget,
+    },
 };
-
-use crate::cell::{Cell, CellValue, Direction};
 
 #[derive(Clone, Debug)]
 pub struct Grid {
@@ -42,31 +46,42 @@ impl Widget for Grid {
             self.corners.map(|arr| arr[3]).unwrap_or(' ')
         );
 
-        buf.set_string(area.left(), area.top(), top_lid.as_str(), Style::default());
+        let default_style = Style::default().fg(Color::White).bg(Color::Reset);
+        buf.set_string(area.left(), area.top(), top_lid.as_str(), default_style);
+
+        let left_side = Span::styled(format!("{} ", self.sides), default_style);
+        let right_side = Span::styled(format!(" {}", self.sides), default_style);
 
         self.inner
             .iter()
             .map(|line| {
-                line.iter()
-                    .map(|c| char::from(c.value).to_string())
-                    .collect::<Vec<String>>()
-                    .join(" ")
+                let mut spans = intersperse(
+                    line.iter().map(Span::from),
+                    Span::styled(" ", default_style),
+                )
+                .collect::<Vec<_>>();
+
+                let mut line = vec![left_side.clone()];
+                line.append(&mut spans);
+                line.push(right_side.clone());
+
+                Spans::from(line)
             })
             .enumerate()
             .for_each(|(index, line)| {
-                buf.set_string(
+                buf.set_spans(
                     area.left(),
                     area.top() + index as u16 + 1,
-                    format!("{1} {0} {1}", line, self.sides),
-                    Style::default(),
-                )
+                    &line,
+                    line.0.len() as u16 + 2,
+                );
             });
 
         buf.set_string(
             area.left(),
             area.top() + height,
             bot_lid.as_str(),
-            Style::default(),
+            default_style,
         );
 
         let (x, y) = self.cursor;
@@ -85,8 +100,8 @@ impl Widget for Grid {
             y,
             val,
             Style::default()
-                .fg(if blink { Color::Black } else { Color::Cyan })
-                .bg(if blink { Color::Cyan } else { Color::Black })
+                .fg(if blink { Color::Reset } else { Color::Cyan })
+                .bg(if blink { Color::Cyan } else { Color::Reset })
                 .add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
         );
     }

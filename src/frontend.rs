@@ -341,6 +341,7 @@ fn handle_events_command_mode(
         }
         KeyCode::Enter => {
             state.mode = EditorMode::Normal;
+            state.tooltip = None;
             return handle_command(cmd.as_ref(), state, sender);
         }
         KeyCode::Esc => {
@@ -362,7 +363,8 @@ fn handle_command(
     state: &mut State,
     sender: &Sender<crate::logic::Message>,
 ) -> Result<bool> {
-    match cmd.as_bytes() {
+    match cmd.trim().as_bytes() {
+        b"" => (),
         b"q" => return Ok(true),
         [b'w', path @ ..] => {
             let path = String::from_utf8(path.to_vec()).expect("Provided write path is not UTF-8");

@@ -4,6 +4,8 @@ use tui::{
     text::Span,
 };
 
+use crate::frontend::Config;
+
 /// Represents a single cell of the grid.
 #[derive(Clone, Debug, Default, Copy)]
 pub struct Cell {
@@ -81,6 +83,32 @@ impl From<CellValue> for char {
             CellValue::Number(num) => num.to_string().chars().next().unwrap(),
             CellValue::Char(c) => c,
         }
+    }
+}
+
+impl Cell {
+    pub fn to_span(&self, config: &Config) -> Span {
+        Span::styled(char::from(self.value).to_string(), self.to_style(config))
+    }
+
+    fn to_style(&self, config: &Config) -> Style {
+        Style::default()
+            .fg(match self.value {
+                CellValue::Empty => Color::Reset,
+                CellValue::Op(op) => op.into(),
+                CellValue::Dir(dir) => dir.into(),
+                CellValue::If(cond) => cond.into(),
+                CellValue::StringMode => Color::Cyan,
+                CellValue::Bridge => Color::LightGreen,
+                CellValue::End => Color::Cyan,
+                CellValue::Number(_) => Color::Magenta,
+                CellValue::Char(_) => Color::White,
+            })
+            .bg(if config.heat && self.heat > 64 {
+                Color::Rgb((128. * (self.heat as f32 / 128 as f32)) as u8, 0, 0)
+            } else {
+                Color::Reset
+            })
     }
 }
 

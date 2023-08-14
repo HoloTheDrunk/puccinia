@@ -1,21 +1,17 @@
-use tui::{
-    layout::{Margin, Rect},
-    widgets::StatefulWidget,
-};
+use tui::{layout::Rect, widgets::StatefulWidget};
 
 use crate::{
     cell::{Cell, CellValue, Direction},
-    frontend::EditorMode,
+    frontend::{self, EditorMode},
 };
 
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 use {
-    itertools::{intersperse, Itertools},
+    itertools::intersperse,
     tui::{
         style::{Color, Modifier, Style},
         text::{Span, Spans},
-        widgets::Widget,
     },
 };
 
@@ -24,9 +20,9 @@ pub struct Grid {
     width: usize,
     height: usize,
 
-    lids: char,
-    sides: char,
-    corners: Option<[char; 4]>,
+    pub lids: char,
+    pub sides: char,
+    pub corners: Option<[char; 4]>,
 
     cursor: (usize, usize),
     cursor_direction: Direction,
@@ -36,7 +32,7 @@ pub struct Grid {
 }
 
 impl StatefulWidget for Grid {
-    type State = EditorMode;
+    type State = (EditorMode, frontend::Config);
 
     fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, state: &mut Self::State) {
         let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
@@ -66,7 +62,7 @@ impl StatefulWidget for Grid {
             .iter()
             .map(|line| {
                 let mut spans = intersperse(
-                    line.iter().map(Span::from),
+                    line.iter().map(|cell| cell.to_span(&state.1)),
                     Span::styled(" ", default_style),
                 )
                 .collect::<Vec<_>>();
@@ -99,7 +95,7 @@ impl StatefulWidget for Grid {
         let blink = self.last_move.elapsed() < Duration::from_millis(1000)
             || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
-        let cursor_color = match state {
+        let cursor_color = match state.0 {
             EditorMode::Normal => Color::White,
             EditorMode::Command(_) => Color::DarkGray,
             EditorMode::Insert => Color::Yellow,
@@ -130,9 +126,6 @@ impl StatefulWidget for Grid {
             buf.set_style(target, Style::default().bg(Color::Rgb(64, 64, 64)));
         }
     }
-
-    // fn render(self, area: tui::layout::Rect, buf: &mut tui::buffer::Buffer) {
-    // }
 }
 
 impl Default for Grid {
@@ -145,11 +138,7 @@ impl From<String> for Grid {
     fn from(value: String) -> Self {
         let mut res = Grid::empty();
 
-        if value.is_empty() {
-            res.add_line(Some(" "))
-        } else {
-            value.lines().for_each(|line| res.add_line(Some(line)));
-        }
+        res.load(value);
 
         res
     }
@@ -177,6 +166,22 @@ impl Grid {
             inner: vec![vec![CellValue::Empty.into(); width]; height],
             last_move: Instant::now(),
         }
+    }
+
+    pub fn load(&mut self, grid: String) {
+        self.clear();
+        if grid.is_empty() {
+            self.add_line(Some(" "))
+        } else {
+            grid.lines().for_each(|line| self.add_line(Some(line)));
+        }
+    }
+
+    pub fn load_breakpoints(&mut self, breakpoints: Vec<(usize, usize)>) {
+        self.clear_breakpoints();
+        breakpoints
+            .into_iter()
+            .for_each(|(x, y)| self.toggle_breakpoint(x, y));
     }
 
     /// Adds a new column.
@@ -281,11 +286,13 @@ impl Grid {
         self.inner = vec![vec![CellValue::Empty.into(); self.width]; self.height];
     }
 
-    /// Set characters for lids and walls
-    pub fn style(mut self, lids: char, sides: char) -> Self {
-        self.lids = lids;
-        self.sides = sides;
-        self
+    /// Clears all cell values, keeping breakpoint and heat information
+    pub fn clear_values(&mut self) {
+        for line in &mut self.inner {
+            for cell in line {
+                cell.value = CellValue::Empty;
+            }
+        }
     }
 
     #[inline]

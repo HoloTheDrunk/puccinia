@@ -40,15 +40,45 @@ pub enum Error {
     Terminal(#[from] std::io::Error),
     #[error("Terminated by logic thread")]
     Terminated,
+    #[error("{0}")]
+    Command(CommandError),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum CommandError {
+    #[error("{0}")]
+    Unique(String),
+    #[error("{0:?} must be UTF-8")]
+    EncodingError(CommandPart),
+    #[error("Unrecognized property: {0}")]
+    UnrecognizedProperty(String),
+    #[error("Invalid arguments: {0:?}")]
+    InvalidArguments(Vec<String>),
+    #[error("Usage: set <property> [values...]")]
+    InvalidCommandSyntax,
+    #[error("Invalid command or number of paremeters: {0} {1:?}")]
+    Unknown(String, Vec<String>),
+}
+
+#[derive(Debug)]
+pub enum CommandPart {
+    Property,
+    Arguments,
 }
 
 type AnyResult<T> = anyhow::Result<T, Error>;
 
-#[derive(Default, Debug)]
-struct Config {
-    run_area_width: u16,
-    run_area_on_right: bool,
-    output_area_height: u16,
+#[derive(Clone, Default, Debug)]
+pub struct Config {
+    // Side area for run information
+    pub run_area_width: u16,
+    pub run_area_on_right: bool,
+    pub output_area_height: u16,
+
+    // Editor display settings
+    pub heat: bool,
+    pub lids: bool,
+    pub sides: bool,
 }
 
 #[derive(Default, Debug)]
@@ -89,8 +119,8 @@ pub enum Tooltip {
 pub enum Message {
     Break,
     MoveCursor((usize, usize)),
-    Load((Grid, Vec<i32>)),
-    LogicFail(Option<String>),
+    Load((Grid, Vec<i32>, Vec<(usize, usize)>)),
+    LogicError(String),
     PopupToggle(Tooltip),
     SetCell { x: usize, y: usize, v: char },
     LeaveRunningMode,
@@ -118,6 +148,10 @@ fn wrapper<B: Backend>(
             run_area_width: 32,
             run_area_on_right: false,
             output_area_height: 24,
+
+            heat: true,
+            lids: true,
+            sides: true,
         },
         ..Default::default()
     };
@@ -142,7 +176,9 @@ fn restore_terminal<B: Backend + std::io::Write>(
     mut terminal: Terminal<B>,
     sender: &Sender<logic::Message>,
 ) -> std::io::Result<()> {
-    sender.send(logic::Message::Kill).unwrap();
+    if sender.send(logic::Message::Kill).is_err() {
+        // Ignore already killed logic thread
+    }
 
     disable_raw_mode()?;
 
@@ -197,8 +233,9 @@ fn main_loop<B: Backend>(
 fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> AnyResult<()> {
     match receiver.try_recv() {
         Ok(msg) => match msg {
-            Message::Load((grid, stack)) => {
+            Message::Load((grid, stack, breakpoints)) => {
                 state.grid = Grid::from(grid);
+                state.grid.load_breakpoints(breakpoints);
                 state.stack = stack;
             }
             Message::MoveCursor((x, y)) => {
@@ -208,8 +245,8 @@ fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> AnyRe
                     .expect("Mismatch between frontend and logic threads' state");
             }
             Message::Break => return Err(Error::Terminated),
-            Message::LogicFail(opt_msg) => {
-                state.tooltip = opt_msg.map(|msg| Tooltip::Error(msg));
+            Message::LogicError(msg) => {
+                state.tooltip = Some(Tooltip::Error(msg));
             }
             Message::PopupToggle(_) => todo!(),
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
@@ -313,7 +350,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
             vertical: 1,
             horizontal: 1,
         }),
-        &mut state.mode,
+        &mut (state.mode.clone(), state.config.clone()),
     );
 
     if let EditorMode::Command(ref cmd) = state.mode {
@@ -438,7 +475,10 @@ fn handle_events_command_mode(
         KeyCode::Enter => {
             exit_command_mode(state);
             state.tooltip = None;
-            return handle_command(cmd.as_ref(), state, sender);
+            match handle_command(cmd.as_ref(), state, sender) {
+                Ok(exit) => return Ok(exit),
+                Err(err) => state.tooltip = Some(Tooltip::Error(err.to_string())),
+            }
         }
         KeyCode::Esc => {
             exit_command_mode(state);
@@ -463,7 +503,8 @@ fn handle_command(
         b"" => (),
         b"q" => return Ok(true),
         [b'w', path @ ..] => {
-            let path = String::from_utf8(path.to_vec()).expect("Provided write path is not UTF-8");
+            let path = String::from_utf8(path.to_vec())
+                .map_err(|_| Error::Command(CommandError::EncodingError(CommandPart::Arguments)))?;
             sender
                 .send(logic::Message::Write(
                     (!path.trim().is_empty()).then(|| path.trim().to_owned()),
@@ -484,10 +525,84 @@ fn handle_command(
                 logic::RunningCommand::Start(state.grid.get_breakpoints()),
             ))?;
         }
+        [b's', b'e', b't', args @ ..] => {
+            let args = String::from_utf8(args.to_vec())
+                .map_err(|_| Error::Command(CommandError::EncodingError(CommandPart::Arguments)))?;
+            handle_set_command(args.trim(), state, sender)?;
+        }
+        [b't', b'o', b'g', b'g', b'l', b'e', args @ ..] => {
+            let args = String::from_utf8(args.to_vec())
+                .map_err(|_| Error::Command(CommandError::EncodingError(CommandPart::Arguments)))?;
+            handle_toggle_command(args.trim(), state, sender)?;
+        }
         _ => state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`"))),
     }
 
     Ok(false)
+}
+
+fn handle_toggle_command(
+    args: &str,
+    state: &mut State,
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
+    let args = args.split(' ').collect::<Vec<&str>>();
+    if args.len() != 1 {
+        return Err(Error::Command(CommandError::InvalidCommandSyntax));
+    }
+    let property = args[0];
+
+    match property {
+        "lids" => state.config.lids = !state.config.lids,
+        "sides" => state.config.sides = !state.config.sides,
+        "heat" => state.config.heat = !state.config.heat,
+        _ => {
+            return Err(Error::Command(CommandError::UnrecognizedProperty(
+                property.to_owned(),
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_set_command(
+    args: &str,
+    state: &mut State,
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
+    let args = args.split(' ').collect::<Vec<&str>>();
+    if args.len() < 1 {
+        return Err(Error::Command(CommandError::InvalidCommandSyntax));
+    }
+
+    let property = args[0];
+    let args = &args[1..];
+
+    match (property, args.len()) {
+        ("lids", 1) => state.grid.lids = args[0].chars().next().unwrap(),
+
+        ("sides", 1) => state.grid.sides = args[0].chars().next().unwrap(),
+
+        ("heat_diffusion", 1) => sender.send(logic::Message::UpdateProperty(
+            property.to_owned(),
+            args[0].to_owned(),
+        ))?,
+
+        ("view_updates", 1) => sender.send(logic::Message::UpdateProperty(
+            property.to_owned(),
+            args[0].to_owned(),
+        ))?,
+
+        _ => {
+            return Err(Error::Command(CommandError::Unknown(
+                property.to_owned(),
+                args.iter().map(ToString::to_string).collect(),
+            )))
+        }
+    }
+
+    Ok(())
 }
 
 fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool> {
@@ -533,7 +648,7 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
         let command_area = Rect {
             x: area.left(),
             y: area.bottom() - 3,
-            width: (trunc.len() as u16).max(title.len() as u16) + 2,
+            width: (trunc.len() as u16).max(title.len() as u16) + 4,
             height: 3,
         };
 
@@ -549,7 +664,7 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
             Paragraph::new(trunc.clone()).style(style),
             command_area.inner(&Margin {
                 vertical: 1,
-                horizontal: 1,
+                horizontal: 2,
             }),
         );
     }

@@ -1,9 +1,3 @@
-use std::{
-    io::Write,
-    sync::mpsc::{Receiver, Sender},
-    time::Duration,
-};
-
 use crate::{
     cell::{
         BinaryOperator, CellValue, Direction, IfDir, NullaryOperator, Operator, TernaryOperator,
@@ -13,6 +7,14 @@ use crate::{
     grid::Grid,
     Args,
 };
+
+use std::{
+    io::Write,
+    str::FromStr,
+    sync::mpsc::{Receiver, Sender},
+};
+
+use strum::{EnumString, EnumVariantNames, VariantNames};
 
 #[derive(thiserror::Error, Clone, Debug)]
 #[allow(unused)]
@@ -41,6 +43,8 @@ pub enum Message {
     Sync(String),
     Write(Option<String>),
     RunningCommand(RunningCommand),
+    UpdateProperty(String, String),
+    ToggleProperty(String),
 }
 
 #[derive(Debug)]
@@ -61,12 +65,23 @@ struct State {
 
 #[derive(Debug)]
 struct Config {
+    view_updates: ViewUpdates,
     heat_diffusion: u8,
+}
+
+#[derive(Clone, Copy, Debug, EnumString, EnumVariantNames)]
+enum ViewUpdates {
+    None,
+    Partial,
+    All,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Self { heat_diffusion: 30 }
+        Self {
+            view_updates: ViewUpdates::All,
+            heat_diffusion: 30,
+        }
     }
 }
 
@@ -135,6 +150,30 @@ pub(crate) fn run(
                 }
                 RunningCommand::ToggleBreakpoint => state.grid.toggle_current_breakpoint(),
             },
+            Message::UpdateProperty(property, value) => match property.as_ref() {
+                "heat_diffusion" => match value.parse() {
+                    Ok(heat_diffusion) => state.config.heat_diffusion = heat_diffusion,
+                    Err(_) => sender.send(frontend::Message::LogicError(format!(
+                        "Failed to parse `{value}` to u8; valid values are from 0 to 255 included."
+                    )))?,
+                },
+                "view_updates" => match ViewUpdates::from_str(value.as_ref()) {
+                    Ok(vu) => state.config.view_updates = vu,
+                    Err(_) => sender.send(frontend::Message::LogicError(format!(
+                        "Unrecognized ViewUpdates variant {}, valid variants are {:?}",
+                        value,
+                        ViewUpdates::VARIANTS
+                    )))?,
+                },
+                _ => sender.send(frontend::Message::LogicError(format!(
+                    "Unrecognized property `{property}`",
+                )))?,
+            },
+            Message::ToggleProperty(property) => match property.as_str() {
+                _ => sender.send(frontend::Message::LogicError(format!(
+                    "Unrecognized property `{property}`",
+                )))?,
+            },
         }
     }
 
@@ -147,6 +186,7 @@ fn update_frontend(sender: &Sender<crate::frontend::Message>, state: &State) -> 
     sender.send(frontend::Message::Load((
         state.grid.clone(),
         state.stack.clone(),
+        state.grid.get_breakpoints(),
     )))?;
 
     Ok(())
@@ -171,6 +211,8 @@ fn step(
         .open("test.log")?;
 
     let cell = state.grid.get_current();
+
+    let mut grid_update = false;
 
     match cell.value {
         CellValue::Empty => (),
@@ -233,6 +275,7 @@ fn step(
                     TernaryOperator::Put => {
                         let (width, height) = state.grid.size();
                         if !(x < 0 || y < 0 || x > width as i32 || y > height as i32) {
+                            grid_update = true;
                             state.grid.set(
                                 x as usize,
                                 y as usize,
@@ -264,7 +307,7 @@ fn step(
         }
 
         CellValue::Bridge => {
-            // TODO: remove move error, wrap around instead
+            state.grid.set_current_heat(128);
             state.grid.move_cursor(state.grid.get_cursor_dir(), false);
         }
 
@@ -286,6 +329,11 @@ fn step(
 
     if live {
         update_frontend(sender, state)?;
+    } else {
+        match (state.config.view_updates, grid_update) {
+            (ViewUpdates::All, _) | (ViewUpdates::Partial, true) => update_frontend(sender, state)?,
+            _ => (),
+        }
     }
 
     Ok(if state.grid.get_current().is_breakpoint {

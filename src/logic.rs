@@ -110,21 +110,24 @@ pub(crate) fn run(
                         .iter()
                         .for_each(|(x, y)| state.grid.toggle_breakpoint(*x, *y));
                 }
-                RunningCommand::Step => match step(&sender, &mut state)? {
+                RunningCommand::Step => match step(&sender, &mut state, true)? {
                     RunStatus::Continue => (),
-                    RunStatus::Breakpoint => todo!(),
+                    RunStatus::Breakpoint => (),
                     RunStatus::End => sender.send(frontend::Message::LeaveRunningMode)?,
                 },
-                RunningCommand::SkipToBreakpoint => loop {
-                    match step(&sender, &mut state)? {
-                        RunStatus::Continue => (),
-                        RunStatus::Breakpoint => break,
-                        RunStatus::End => {
-                            sender.send(frontend::Message::LeaveRunningMode)?;
-                            break;
+                RunningCommand::SkipToBreakpoint => {
+                    loop {
+                        match step(&sender, &mut state, false)? {
+                            RunStatus::Continue => (),
+                            RunStatus::Breakpoint => break,
+                            RunStatus::End => {
+                                sender.send(frontend::Message::LeaveRunningMode)?;
+                                break;
+                            }
                         }
                     }
-                },
+                    update_frontend(&sender, &state)?;
+                }
                 RunningCommand::ToggleBreakpoint => state.grid.toggle_current_breakpoint(),
             },
         }
@@ -151,7 +154,11 @@ enum RunStatus {
 }
 
 /// Run a single step, updating the frontend as required.
-fn step(sender: &Sender<crate::frontend::Message>, state: &mut State) -> AnyResult<RunStatus> {
+fn step(
+    sender: &Sender<crate::frontend::Message>,
+    state: &mut State,
+    live: bool,
+) -> AnyResult<RunStatus> {
     let cell = state.grid.get_current();
 
     match cell.value {
@@ -190,13 +197,18 @@ fn step(sender: &Sender<crate::frontend::Message>, state: &mut State) -> AnyResu
         CellValue::End => return Ok(RunStatus::End),
     }
 
-    state.grid.set_current_heat(128);
     state.grid.reduce_heat(state.config.heat_diffusion);
+    state.grid.set_current_heat(128);
 
     state.grid.move_cursor(state.grid.get_cursor_dir(), false);
 
-    // sender.send(frontend::Message::MoveCursor(state.grid.get_cursor()))?;
-    update_frontend(sender, state)?;
+    if live {
+        update_frontend(sender, state)?;
+    }
 
-    Ok(RunStatus::Continue)
+    Ok(if state.grid.get_current().is_breakpoint {
+        RunStatus::Breakpoint
+    } else {
+        RunStatus::Continue
+    })
 }

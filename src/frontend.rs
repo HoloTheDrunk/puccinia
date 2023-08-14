@@ -270,6 +270,24 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
             Block::default().title("Output").borders(Borders::ALL),
             output_area,
         );
+
+        f.render_widget(
+            Paragraph::new(
+                state
+                    .output
+                    .lines()
+                    .map(|line| {
+                        line.truncate_ellipse((output_area.width - 1) as usize)
+                            .to_string()
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n"),
+            ),
+            output_area.inner(&Margin {
+                vertical: 1,
+                horizontal: 2,
+            }),
+        );
     }
 
     f.render_widget(
@@ -345,6 +363,11 @@ fn handle_events_running_mode(
         KeyCode::Char('b') => {
             sender.send(logic::Message::RunningCommand(
                 logic::RunningCommand::ToggleBreakpoint,
+            ))?;
+        }
+        KeyCode::Enter => {
+            sender.send(logic::Message::RunningCommand(
+                logic::RunningCommand::SkipToBreakpoint,
             ))?;
         }
         _ => (),

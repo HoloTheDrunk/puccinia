@@ -344,14 +344,25 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
         grid_area,
     );
 
-    f.render_stateful_widget(
-        state.grid.clone(),
-        grid_area.inner(&Margin {
-            vertical: 1,
-            horizontal: 1,
-        }),
-        &mut (state.mode.clone(), state.config.clone()),
-    );
+    // TODO: Implement grid panning because lmao
+    if state.grid.size().0 * 3 < grid_area.width as usize {
+        f.render_stateful_widget(
+            state.grid.clone(),
+            grid_area.inner(&Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+            &mut (state.mode.clone(), state.config.clone()),
+        );
+    } else {
+        f.render_widget(
+            Paragraph::new("Too wide, need to implement panning sorry :("),
+            grid_area.inner(&Margin {
+                vertical: 1,
+                horizontal: 1,
+            }),
+        );
+    }
 
     if let EditorMode::Command(ref cmd) = state.mode {
         state.tooltip = Some(Tooltip::Command(cmd.clone()));

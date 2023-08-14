@@ -93,7 +93,7 @@ pub(crate) fn run(
     receiver: Receiver<Message>,
 ) -> AnyResult<()> {
     let path = args.input.as_str();
-    // std::fs::OpenOptions::new().create(true).open(path)?;
+
     let mut state = State {
         grid: Grid::from(
             std::fs::read_to_string(path)

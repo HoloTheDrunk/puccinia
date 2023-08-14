@@ -72,13 +72,31 @@ type AnyResult<T> = anyhow::Result<T, Error>;
 pub struct Config {
     // Side area for run information
     pub run_area_width: u16,
-    pub run_area_on_right: bool,
+    pub run_area_position: RunAreaPosition,
     pub output_area_height: u16,
 
     // Editor display settings
     pub heat: bool,
     pub lids: bool,
     pub sides: bool,
+}
+
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub enum RunAreaPosition {
+    #[default]
+    Left,
+    Right,
+    Hidden,
+}
+
+impl RunAreaPosition {
+    pub fn next(&self) -> Self {
+        match self {
+            RunAreaPosition::Left => RunAreaPosition::Right,
+            RunAreaPosition::Right => RunAreaPosition::Hidden,
+            RunAreaPosition::Hidden => RunAreaPosition::Left,
+        }
+    }
 }
 
 #[derive(Default, Debug)]
@@ -146,7 +164,7 @@ fn wrapper<B: Backend>(
         grid: Grid::new(10, 10),
         config: Config {
             run_area_width: 32,
-            run_area_on_right: false,
+            run_area_position: RunAreaPosition::Left,
             output_area_height: 24,
 
             heat: true,
@@ -269,11 +287,13 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     let mut stack_area = frame_size.clone();
 
     // Don't render the run area if the terminal is too thin
-    if frame_size.width > state.config.run_area_width {
+    if state.config.run_area_position != RunAreaPosition::Hidden
+        && frame_size.width > state.config.run_area_width
+    {
         grid_area.width -= state.config.run_area_width;
         stack_area.width = state.config.run_area_width;
 
-        if state.config.run_area_on_right {
+        if state.config.run_area_position == RunAreaPosition::Right {
             stack_area.x = grid_area.width;
         } else {
             grid_area.x += state.config.run_area_width;
@@ -345,24 +365,24 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     );
 
     // TODO: Implement grid panning because lmao
-    if state.grid.size().0 * 3 < grid_area.width as usize {
-        f.render_stateful_widget(
-            state.grid.clone(),
-            grid_area.inner(&Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
-            &mut (state.mode.clone(), state.config.clone()),
-        );
-    } else {
-        f.render_widget(
-            Paragraph::new("Too wide, need to implement panning sorry :("),
-            grid_area.inner(&Margin {
-                vertical: 1,
-                horizontal: 1,
-            }),
-        );
-    }
+    // if state.grid.size().0 * 3 < grid_area.width as usize {
+    f.render_stateful_widget(
+        state.grid.clone(),
+        grid_area.inner(&Margin {
+            vertical: 1,
+            horizontal: 1,
+        }),
+        &mut (state.mode.clone(), state.config.clone()),
+    );
+    // } else {
+    //     f.render_widget(
+    //         Paragraph::new("Too wide, need to implement panning sorry :("),
+    //         grid_area.inner(&Margin {
+    //             vertical: 1,
+    //             horizontal: 1,
+    //         }),
+    //     );
+    // }
 
     if let EditorMode::Command(ref cmd) = state.mode {
         state.tooltip = Some(Tooltip::Command(cmd.clone()));
@@ -532,6 +552,10 @@ fn handle_command(
 
             state.mode = EditorMode::Running;
 
+            if state.config.run_area_position == RunAreaPosition::Hidden {
+                state.config.run_area_position = RunAreaPosition::Left;
+            }
+
             sender.send(logic::Message::RunningCommand(
                 logic::RunningCommand::Start(state.grid.get_breakpoints()),
             ))?;
@@ -622,7 +646,7 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool
             state.mode = EditorMode::Insert;
         }
         KeyCode::Char('f') => {
-            state.config.run_area_on_right = !state.config.run_area_on_right;
+            state.config.run_area_position = state.config.run_area_position.next();
         }
         KeyCode::Char('b') => {
             state.grid.toggle_current_breakpoint();

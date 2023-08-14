@@ -28,17 +28,21 @@ pub struct Grid {
     cursor_direction: Direction,
     last_move: Instant,
 
+    pan: (usize, usize),
+
     inner: Vec<Vec<Cell>>,
 }
 
 impl StatefulWidget for Grid {
     type State = (EditorMode, frontend::Config);
 
-    fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, state: &mut Self::State) {
+    fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, (mode, config): &mut Self::State) {
         let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
         let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;
 
-        let lid = self.lids.to_string().repeat(width as usize + 1);
+        let target_cell_count = (area.width as usize / 2 - 2).min(self.inner[0].len());
+
+        let lid = self.lids.to_string().repeat(target_cell_count * 2 - 1);
 
         let top_lid = format!(
             "{}{lid}{}",
@@ -60,9 +64,14 @@ impl StatefulWidget for Grid {
 
         self.inner
             .iter()
+            .skip(self.pan.1)
+            .take(area.height as usize - 2)
             .map(|line| {
                 let mut spans = intersperse(
-                    line.iter().map(|cell| cell.to_span(&state.1)),
+                    line.iter()
+                        .skip(self.pan.0)
+                        .take(target_cell_count - 1)
+                        .map(|cell| cell.to_span(&config)),
                     Span::styled(" ", default_style),
                 )
                 .collect::<Vec<_>>();
@@ -95,7 +104,7 @@ impl StatefulWidget for Grid {
         let blink = self.last_move.elapsed() < Duration::from_millis(1000)
             || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
-        let cursor_color = match state.0 {
+        let cursor_color = match mode {
             EditorMode::Normal => Color::White,
             EditorMode::Command(_) => Color::DarkGray,
             EditorMode::Insert => Color::Yellow,
@@ -158,13 +167,18 @@ impl Grid {
         Self {
             width,
             height,
+
             lids: '─',
             sides: '│',
             corners: Some(['╭', '╮', '╰', '╯']),
+
             cursor: Default::default(),
             cursor_direction: Direction::Right,
-            inner: vec![vec![CellValue::Empty.into(); width]; height],
             last_move: Instant::now(),
+
+            inner: vec![vec![CellValue::Empty.into(); width]; height],
+
+            pan: (0, 0),
         }
     }
 

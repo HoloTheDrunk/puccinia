@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use tui::style::Color;
+use tui::{style::Color, widgets::Wrap};
 
 use crate::{
     cell::{CellValue, Direction},
@@ -94,6 +94,7 @@ pub enum Message {
     PopupToggle(Tooltip),
     SetCell { x: usize, y: usize, v: char },
     LeaveRunningMode,
+    Output(String),
 }
 
 pub(crate) fn run(receiver: Receiver<Message>, sender: Sender<logic::Message>) -> AnyResult<()> {
@@ -213,6 +214,7 @@ fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> AnyRe
             Message::PopupToggle(_) => todo!(),
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
             Message::LeaveRunningMode => state.mode = EditorMode::Normal,
+            Message::Output(s) => state.output.push_str(s.as_ref()),
         },
         Err(err) => match err {
             TryRecvError::Empty => (),
@@ -276,13 +278,15 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
                 state
                     .output
                     .lines()
-                    .map(|line| {
-                        line.truncate_ellipse((output_area.width - 1) as usize)
-                            .to_string()
-                    })
-                    .collect::<Vec<String>>()
+                    // Might be needed if wrapping doesn't work nicely enough
+                    // .map(|line| {
+                    //     line.truncate_ellipse((output_area.width - 1) as usize)
+                    //         .to_string()
+                    // })
+                    .collect::<Vec<&str>>()
                     .join("\n"),
-            ),
+            )
+            .wrap(Wrap { trim: false }),
             output_area.inner(&Margin {
                 vertical: 1,
                 horizontal: 2,
@@ -506,6 +510,8 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool
                 _ => unreachable!(),
             };
         }
+        KeyCode::Right => state.grid.add_column(),
+        KeyCode::Down => state.grid.add_line(None),
         KeyCode::Esc => state.tooltip = None,
         _ => (),
     }

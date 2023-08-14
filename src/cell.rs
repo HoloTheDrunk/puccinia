@@ -58,6 +58,8 @@ impl From<char> for CellValue {
                     CellValue::Op(op)
                 } else if let Ok(dir) = Direction::try_from(c) {
                     CellValue::Dir(dir)
+                } else if let Ok(ifdir) = IfDir::try_from(c) {
+                    CellValue::If(ifdir)
                 } else {
                     CellValue::Char(c)
                 }

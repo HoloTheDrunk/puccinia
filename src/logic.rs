@@ -1,10 +1,14 @@
 use std::{
+    io::Write,
     sync::mpsc::{Receiver, Sender},
     time::Duration,
 };
 
 use crate::{
-    cell::{CellValue, Direction, IfDir},
+    cell::{
+        BinaryOperator, CellValue, Direction, IfDir, NullaryOperator, Operator, TernaryOperator,
+        UnaryOperator,
+    },
     frontend,
     grid::Grid,
     Args,
@@ -74,6 +78,7 @@ pub(crate) fn run(
     receiver: Receiver<Message>,
 ) -> AnyResult<()> {
     let path = args.input.as_str();
+    // std::fs::OpenOptions::new().create(true).open(path)?;
     let mut state = State {
         grid: Grid::from(
             std::fs::read_to_string(path)
@@ -159,6 +164,12 @@ fn step(
     state: &mut State,
     live: bool,
 ) -> AnyResult<RunStatus> {
+    let mut log = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open("test.log")?;
+
     let cell = state.grid.get_current();
 
     match cell.value {
@@ -166,18 +177,88 @@ fn step(
 
         CellValue::StringMode => state.string_mode = !state.string_mode,
 
-        CellValue::Op(_) => todo!(),
+        CellValue::Op(op) => match op {
+            Operator::Nullary(op) => match op {
+                NullaryOperator::Integer => todo!(),
+                NullaryOperator::Ascii => todo!(),
+            },
+            Operator::Unary(op) => {
+                let popped = state.stack.pop().unwrap_or(0);
+                match op {
+                    UnaryOperator::Negate => state.stack.push(if popped == 0 { 1 } else { 0 }),
+                    UnaryOperator::Duplicate => {
+                        state.stack.push(popped);
+                        state.stack.push(popped);
+                    }
+                    UnaryOperator::Pop => (),
+                    UnaryOperator::WriteNumber => {
+                        sender.send(frontend::Message::Output(popped.to_string()))?;
+                    }
+                    UnaryOperator::WriteASCII => sender.send(frontend::Message::Output(
+                        String::from_utf8([popped as u8].to_vec())?,
+                    ))?,
+                }
+            }
+            Operator::Binary(op) => {
+                let b = state.stack.pop().unwrap_or(0);
+                let a = state.stack.pop().unwrap_or(0);
+                match op {
+                    BinaryOperator::Greater => state.stack.push((a > b) as i32),
+                    BinaryOperator::Add => state.stack.push(a + b),
+                    BinaryOperator::Subtract => state.stack.push(a - b),
+                    BinaryOperator::Multiply => state.stack.push(a * b),
+                    BinaryOperator::Divide => state.stack.push(if b != 0 { a / b } else { 0 }),
+                    BinaryOperator::Modulo => state.stack.push(if b != 0 { a % b } else { 0 }),
+                    BinaryOperator::Swap => {
+                        state.stack.push(b);
+                        state.stack.push(a);
+                    }
+                    BinaryOperator::Get => {
+                        let (width, height) = state.grid.size();
+                        if a < 0 || b < 0 || a > width as i32 || b > height as i32 {
+                            state.stack.push(0);
+                        } else {
+                            state.stack.push(char::from(
+                                state.grid.get(a as usize, b as usize).value,
+                            ) as i32);
+                        }
+                    }
+                }
+            }
+            Operator::Ternary(op) => {
+                let y = state.stack.pop().unwrap_or(0);
+                let x = state.stack.pop().unwrap_or(0);
+                let v = state.stack.pop().unwrap_or(0);
+                match op {
+                    TernaryOperator::Put => {
+                        let (width, height) = state.grid.size();
+                        if !(x < 0 || y < 0 || x > width as i32 || y > height as i32) {
+                            state.grid.set(
+                                x as usize,
+                                y as usize,
+                                char::from_u32(v as u32).unwrap().into(),
+                            );
+                        }
+                    }
+                }
+            }
+        },
+
         CellValue::Dir(dir) => state.grid.set_cursor_dir(dir),
         CellValue::If(if_dir) => {
+            log.write_all(b"Going through IF")?;
+
             let (non_zero, zero) = match if_dir {
                 IfDir::Horizontal => (Direction::Left, Direction::Right),
                 IfDir::Vertical => (Direction::Up, Direction::Down),
             };
 
-            let value = state.stack.pop();
-            if value.is_none() || value == Some(0) {
+            let value = state.stack.pop().unwrap_or(0);
+            if value == 0 {
+                log.write_all(format!("Going {:?}", zero).as_bytes())?;
                 state.grid.set_cursor_dir(zero);
             } else {
+                log.write_all(format!("Going {:?}", non_zero).as_bytes())?;
                 state.grid.set_cursor_dir(non_zero);
             }
         }
@@ -200,6 +281,7 @@ fn step(
     state.grid.reduce_heat(state.config.heat_diffusion);
     state.grid.set_current_heat(128);
 
+    log.write_all(format!("Went {:?}", state.grid.get_cursor_dir()).as_bytes())?;
     state.grid.move_cursor(state.grid.get_cursor_dir(), false);
 
     if live {

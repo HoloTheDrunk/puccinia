@@ -408,7 +408,7 @@ fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResul
                     let ctrl = !(modifiers & KeyModifiers::CONTROL).is_empty();
                     match state.mode {
                         EditorMode::Normal => {
-                            return handle_events_normal_mode((code, shift, ctrl), state)
+                            return handle_events_normal_mode((code, shift, ctrl), state, sender);
                         }
                         EditorMode::Command(ref cmd) => {
                             return handle_events_command_mode(
@@ -416,7 +416,7 @@ fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResul
                                 cmd.clone(),
                                 state,
                                 sender,
-                            )
+                            );
                         }
                         EditorMode::Insert => {
                             handle_events_insert_mode((code, shift, ctrl), state, sender)?;
@@ -540,6 +540,7 @@ fn handle_events_command_mode(
     Ok(false)
 }
 
+// Returns whether or not the program should exit due to a fatal error.
 fn handle_command(
     cmd: &str,
     state: &mut State,
@@ -663,10 +664,11 @@ fn handle_set_command(
 }
 
 fn handle_events_normal_mode(
-    (code, shift, _ctrl): (KeyCode, bool, bool),
+    (code, _shift, ctrl): (KeyCode, bool, bool),
     state: &mut State,
+    sender: &Sender<logic::Message>,
 ) -> AnyResult<bool> {
-    match (code, shift) {
+    match (code, ctrl) {
         (KeyCode::Char('i'), false) => {
             state.mode = EditorMode::Insert;
         }
@@ -685,7 +687,7 @@ fn handle_events_normal_mode(
                 _ => unreachable!(),
             };
         }
-        (KeyCode::Char(c @ ('H' | 'J' | 'K' | 'L')), true) => {
+        (KeyCode::Char(c @ ('H' | 'J' | 'K' | 'L')), false) => {
             match c {
                 'H' => state.grid.prepend_column(),
                 'J' => state.grid.append_line(None),
@@ -694,8 +696,7 @@ fn handle_events_normal_mode(
                 _ => unreachable!(),
             };
         }
-        // KeyCode::Right => state.grid.add_column(),
-        // KeyCode::Down => state.grid.add_line(None),
+        (KeyCode::Char('r'), true) => return handle_command("run", state, sender),
         (KeyCode::Esc, false) => state.tooltip = None,
         _ => (),
     }

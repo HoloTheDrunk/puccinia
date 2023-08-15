@@ -32,8 +32,8 @@ impl From<char> for Cell {
     }
 }
 
-#[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Default, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Clone, Debug, Default, Copy, PartialEq, Eq)]
 pub enum CellValue {
     #[default]
     Empty,
@@ -140,8 +140,8 @@ impl From<&Cell> for Style {
     }
 }
 
-#[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum Operator {
     Nullary(NullaryOperator),
     Unary(UnaryOperator),
@@ -266,8 +266,8 @@ char_mapping! {
         Random = '?' => LightGreen;
 }
 
-#[cfg_attr(test, derive(Hash, Eq))]
-#[derive(Default, PartialEq, Clone, Debug, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Default, PartialEq, Clone, Debug, Copy, Eq)]
 pub enum Direction {
     Up,
     Down,
@@ -322,15 +322,15 @@ impl From<Direction> for (i32, i32) {
     }
 }
 
-#[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum NullaryOperator {
     Integer,
     Ascii,
 }
 
-#[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum UnaryOperator {
     Negate,
     Duplicate,
@@ -339,8 +339,8 @@ pub enum UnaryOperator {
     WriteASCII,
 }
 
-#[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
     Greater,
     Add,
@@ -352,14 +352,14 @@ pub enum BinaryOperator {
     Get,
 }
 
-#[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum TernaryOperator {
     Put,
 }
 
-#[cfg_attr(test, derive(Hash, PartialEq, Eq))]
-#[derive(Clone, Debug, Copy)]
+#[cfg_attr(test, derive(Hash))]
+#[derive(Clone, Debug, Copy, PartialEq, Eq)]
 pub enum IfDir {
     Horizontal,
     Vertical,

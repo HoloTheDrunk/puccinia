@@ -5,7 +5,10 @@ use crate::{
     frontend::{self, EditorMode},
 };
 
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    time::{Duration, Instant},
+};
 
 use {
     itertools::intersperse,
@@ -30,7 +33,7 @@ pub struct Grid {
 
     pan: (usize, usize),
 
-    inner: Vec<Vec<Cell>>,
+    inner: VecDeque<VecDeque<Cell>>,
 }
 
 impl StatefulWidget for Grid {
@@ -42,7 +45,7 @@ impl StatefulWidget for Grid {
 
         let target_cell_count = (area.width as usize / 2 - 2).min(self.inner[0].len());
 
-        let lid = self.lids.to_string().repeat(target_cell_count * 2 - 1);
+        let lid = self.lids.to_string().repeat(target_cell_count * 2 + 1);
 
         let top_lid = format!(
             "{}{lid}{}",
@@ -70,7 +73,7 @@ impl StatefulWidget for Grid {
                 let mut spans = intersperse(
                     line.iter()
                         .skip(self.pan.0)
-                        .take(target_cell_count - 1)
+                        .take(target_cell_count)
                         .map(|cell| cell.to_span(&config)),
                     Span::styled(" ", default_style),
                 )
@@ -158,7 +161,7 @@ impl Grid {
         Self {
             width: 0,
             height: 0,
-            inner: vec![],
+            inner: VecDeque::new(),
             ..Default::default()
         }
     }
@@ -176,7 +179,7 @@ impl Grid {
             cursor_direction: Direction::Right,
             last_move: Instant::now(),
 
-            inner: vec![vec![CellValue::Empty.into(); width]; height],
+            inner: vec![vec![CellValue::Empty.into(); width].into(); height].into(),
 
             pan: (0, 0),
         }
@@ -185,9 +188,9 @@ impl Grid {
     pub fn load(&mut self, grid: String) {
         self.clear();
         if grid.is_empty() {
-            self.add_line(Some(" "))
+            self.append_line(Some(" "))
         } else {
-            grid.lines().for_each(|line| self.add_line(Some(line)));
+            grid.lines().for_each(|line| self.append_line(Some(line)));
         }
     }
 
@@ -198,23 +201,33 @@ impl Grid {
             .for_each(|(x, y)| self.toggle_breakpoint(x, y));
     }
 
-    /// Adds a new column.
+    /// Adds a new column to the left side of the grid.
     /// Resizes grid.
-    pub fn add_column(&mut self) {
+    pub fn prepend_column(&mut self) {
         self.width += 1;
 
         self.inner
             .iter_mut()
-            .for_each(|row| row.push(CellValue::Empty.into()));
+            .for_each(|row| row.push_front(CellValue::Empty.into()));
     }
 
-    /// Adds a new line, either blank or filled with desired string.
+    /// Adds a new column to the right side of the grid.
+    /// Resizes grid.
+    pub fn append_column(&mut self) {
+        self.width += 1;
+
+        self.inner
+            .iter_mut()
+            .for_each(|row| row.push_back(CellValue::Empty.into()));
+    }
+
+    /// Adds a new line to the top of the grid, either blank or filled with desired string.
     /// Resizes grid as necessary.
-    pub fn add_line(&mut self, line: Option<&str>) {
+    pub fn prepend_line(&mut self, line: Option<&str>) {
         self.height += 1;
 
         if let Some(line) = line {
-            let mut line = line.chars().map(Cell::from).collect::<Vec<Cell>>();
+            let mut line = line.chars().map(Cell::from).collect::<VecDeque<Cell>>();
 
             // If longer than width, resize all other rows to keep rectangular shape
             if line.len() > self.width {
@@ -227,9 +240,101 @@ impl Grid {
                 line.resize(self.width, CellValue::Empty.into());
             }
 
-            self.inner.push(line);
+            self.inner.push_front(line);
         } else {
-            self.inner.push(vec![CellValue::Empty.into(); self.width]);
+            self.inner
+                .push_front(vec![CellValue::Empty.into(); self.width].into());
+        }
+    }
+
+    pub fn trim(&mut self) -> [usize; 4] {
+        let lead_col: usize = self
+            .inner
+            .iter()
+            .map(|line| {
+                line.iter()
+                    .take_while(|c| c.value == CellValue::Empty)
+                    .count()
+            })
+            .min()
+            .unwrap_or(0);
+
+        let trail_col: usize = self
+            .inner
+            .iter()
+            .map(|line| {
+                line.iter()
+                    .rev()
+                    .take_while(|c| c.value == CellValue::Empty)
+                    .count()
+            })
+            .min()
+            .unwrap_or(0);
+
+        let lead_row: usize = self
+            .inner
+            .iter()
+            .take_while(|line| line.iter().all(|cell| cell.value == CellValue::Empty))
+            .count();
+
+        let trail_row: usize = self
+            .inner
+            .iter()
+            .rev()
+            .take_while(|line| line.iter().all(|cell| cell.value == CellValue::Empty))
+            .count();
+
+        (0..lead_row).for_each(|_| {
+            self.inner.pop_front();
+        });
+        (0..trail_row).for_each(|_| {
+            self.inner.pop_back();
+        });
+
+        self.height -= (lead_row + trail_row).min(self.height);
+
+        self.inner.iter_mut().for_each(|line| {
+            (0..lead_col).for_each(|_| {
+                line.pop_front();
+            });
+            (0..trail_col).for_each(|_| {
+                line.pop_back();
+            });
+        });
+
+        self.width -= (lead_col + trail_col).min(self.width);
+
+        if self.width == 0 {
+            self.inner
+                .push_front(vec![CellValue::Empty.into(); 1].into());
+        }
+
+        [lead_row, trail_row, lead_col, trail_col]
+    }
+
+    /// Adds a new line to the bottom of the grid, either blank or filled with desired string.
+    /// Resizes grid as necessary.
+    pub fn append_line(&mut self, line: Option<&str>) {
+        self.height += 1;
+
+        if let Some(line) = line {
+            let mut line = line.chars().map(Cell::from).collect::<VecDeque<Cell>>();
+
+            // If longer than width, resize all other rows to keep rectangular shape
+            if line.len() > self.width {
+                let size = line.len();
+                self.width = size;
+                self.inner
+                    .iter_mut()
+                    .for_each(|row| row.resize(size, CellValue::Empty.into()));
+            } else {
+                line.resize(self.width, CellValue::Empty.into());
+            }
+
+            self.inner.push_back(line);
+        } else {
+            self.inner
+                .push_back(vec![CellValue::Empty.into(); self.width].into());
         }
     }
 
@@ -297,7 +402,7 @@ impl Grid {
 
     /// Completely clears grid
     pub fn clear(&mut self) {
-        self.inner = vec![vec![CellValue::Empty.into(); self.width]; self.height];
+        self.inner = vec![vec![CellValue::Empty.into(); self.width].into(); self.height].into();
     }
 
     /// Clears all cell values, keeping breakpoint and heat information

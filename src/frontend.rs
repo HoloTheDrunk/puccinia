@@ -4,6 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crossterm::event::KeyModifiers;
 use tui::{style::Color, widgets::Wrap};
 
 use crate::{
@@ -129,6 +130,7 @@ pub enum EditorMode {
 #[allow(unused)]
 pub enum Tooltip {
     Command(String),
+    Info(String),
     Error(String),
 }
 
@@ -394,23 +396,36 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
 fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResult<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
-            Ok(Event::Key(KeyEvent { code, .. })) => match (code, state.mode.clone()) {
+            Ok(Event::Key(KeyEvent {
+                code, modifiers, ..
+            })) => match (code, state.mode.clone()) {
                 (KeyCode::Char(':'), EditorMode::Normal | EditorMode::Running) => {
                     state.previous_mode = Some(state.mode.clone());
                     state.mode = EditorMode::Command(String::new());
                 }
-                _ => match state.mode {
-                    EditorMode::Normal => return handle_events_normal_mode(code, state),
-                    EditorMode::Command(ref cmd) => {
-                        return handle_events_command_mode(code, cmd.clone(), state, sender)
+                _ => {
+                    let shift = !(modifiers & KeyModifiers::SHIFT).is_empty();
+                    let ctrl = !(modifiers & KeyModifiers::CONTROL).is_empty();
+                    match state.mode {
+                        EditorMode::Normal => {
+                            return handle_events_normal_mode((code, shift, ctrl), state)
+                        }
+                        EditorMode::Command(ref cmd) => {
+                            return handle_events_command_mode(
+                                (code, shift, ctrl),
+                                cmd.clone(),
+                                state,
+                                sender,
+                            )
+                        }
+                        EditorMode::Insert => {
+                            handle_events_insert_mode((code, shift, ctrl), state, sender)?;
+                        }
+                        EditorMode::Running => {
+                            handle_events_running_mode((code, shift, ctrl), state, sender)?;
+                        }
                     }
-                    EditorMode::Insert => {
-                        handle_events_insert_mode(code, state, sender)?;
-                    }
-                    EditorMode::Running => {
-                        handle_events_running_mode(code, state, sender)?;
-                    }
-                },
+                }
             },
             Err(err) => return Err(Error::Terminal(err)),
             _ => (),
@@ -421,7 +436,7 @@ fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResul
 }
 
 fn handle_events_running_mode(
-    code: KeyCode,
+    (code, shift, ctrl): (KeyCode, bool, bool),
     state: &mut State,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
@@ -449,7 +464,7 @@ fn handle_events_running_mode(
 }
 
 fn handle_events_insert_mode(
-    code: KeyCode,
+    (code, shift, ctrl): (KeyCode, bool, bool),
     state: &mut State,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
@@ -484,7 +499,7 @@ fn handle_events_insert_mode(
 }
 
 fn handle_events_command_mode(
-    code: KeyCode,
+    (code, shift, ctrl): (KeyCode, bool, bool),
     mut cmd: String,
     state: &mut State,
     sender: &Sender<logic::Message>,
@@ -542,6 +557,13 @@ fn handle_command(
                 ))
                 .unwrap();
         }
+        b"trim" => {
+            let trimmed = state.grid.trim();
+            state.tooltip = Some(Tooltip::Info(format!("{trimmed:?}")));
+            if trimmed.iter().any(|v| *v != 0) {
+                state.grid.set_cursor(0, 0).unwrap();
+            }
+        }
         b"run" => {
             state.grid.set_cursor(0, 0).unwrap();
             state.grid.set_cursor_dir(Direction::Right);
@@ -579,7 +601,7 @@ fn handle_command(
 fn handle_toggle_command(
     args: &str,
     state: &mut State,
-    sender: &Sender<logic::Message>,
+    _sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
     let args = args.split(' ').collect::<Vec<&str>>();
     if args.len() != 1 {
@@ -640,18 +662,21 @@ fn handle_set_command(
     Ok(())
 }
 
-fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool> {
-    match code {
-        KeyCode::Char('i') => {
+fn handle_events_normal_mode(
+    (code, shift, _ctrl): (KeyCode, bool, bool),
+    state: &mut State,
+) -> AnyResult<bool> {
+    match (code, shift) {
+        (KeyCode::Char('i'), false) => {
             state.mode = EditorMode::Insert;
         }
-        KeyCode::Char('f') => {
+        (KeyCode::Char('f'), false) => {
             state.config.run_area_position = state.config.run_area_position.next();
         }
-        KeyCode::Char('b') => {
+        (KeyCode::Char('b'), false) => {
             state.grid.toggle_current_breakpoint();
         }
-        KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
+        (KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')), false) => {
             match c {
                 'h' => state.grid.move_cursor(Direction::Left, true),
                 'j' => state.grid.move_cursor(Direction::Down, true),
@@ -660,9 +685,18 @@ fn handle_events_normal_mode(code: KeyCode, state: &mut State) -> AnyResult<bool
                 _ => unreachable!(),
             };
         }
-        KeyCode::Right => state.grid.add_column(),
-        KeyCode::Down => state.grid.add_line(None),
-        KeyCode::Esc => state.tooltip = None,
+        (KeyCode::Char(c @ ('H' | 'J' | 'K' | 'L')), true) => {
+            match c {
+                'H' => state.grid.prepend_column(),
+                'J' => state.grid.append_line(None),
+                'K' => state.grid.prepend_line(None),
+                'L' => state.grid.append_column(),
+                _ => unreachable!(),
+            };
+        }
+        // KeyCode::Right => state.grid.add_column(),
+        // KeyCode::Down => state.grid.add_line(None),
+        (KeyCode::Esc, false) => state.tooltip = None,
         _ => (),
     }
 
@@ -673,6 +707,7 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
     if let Some(tooltip) = state.tooltip.clone() {
         let (title, content, style) = match tooltip {
             Tooltip::Command(cmd) => ("Command", cmd, Style::default().fg(Color::Yellow)),
+            Tooltip::Info(info) => ("Info", info, Style::default().fg(Color::Green)),
             Tooltip::Error(err) => ("Error", err, Style::default().fg(Color::Red)),
         };
 

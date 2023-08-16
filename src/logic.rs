@@ -12,6 +12,7 @@ use std::{
     io::Write,
     str::FromStr,
     sync::mpsc::{Receiver, Sender},
+    time::{Duration, Instant},
 };
 
 use strum::{EnumString, EnumVariantNames, VariantNames};
@@ -49,10 +50,11 @@ pub enum Message {
 
 #[derive(Debug)]
 pub enum RunningCommand {
-    Start(Vec<(usize, usize)>),
+    Start(String, Vec<(usize, usize)>),
     Step,
     SkipToBreakpoint,
     ToggleBreakpoint,
+    Stop,
 }
 
 #[derive(Debug, Default)]
@@ -67,9 +69,10 @@ struct State {
 struct Config {
     view_updates: ViewUpdates,
     heat_diffusion: u8,
+    step_ms: u64,
 }
 
-#[derive(Clone, Copy, Debug, EnumString, EnumVariantNames)]
+#[derive(Clone, Copy, Debug, EnumString, EnumVariantNames, PartialEq, Eq)]
 enum ViewUpdates {
     None,
     Partial,
@@ -81,6 +84,7 @@ impl Default for Config {
         Self {
             view_updates: ViewUpdates::All,
             heat_diffusion: 30,
+            step_ms: 80,
         }
     }
 }
@@ -119,11 +123,15 @@ pub(crate) fn run(
                 state.grid = Grid::from(grid);
             }
             Message::RunningCommand(command) => match command {
-                RunningCommand::Start(breakpoints) => {
+                RunningCommand::Start(grid, breakpoints) => {
+                    state.grid.load_values(grid);
+
                     state.grid.set_cursor(0, 0).unwrap();
                     state.grid.set_cursor_dir(Direction::Right);
+
                     state.grid.clear_heat();
                     state.grid.clear_breakpoints();
+
                     state.stack.clear();
 
                     breakpoints
@@ -137,6 +145,8 @@ pub(crate) fn run(
                 },
                 RunningCommand::SkipToBreakpoint => {
                     loop {
+                        let start = Instant::now();
+
                         match step(&sender, &mut state, false)? {
                             RunStatus::Continue => (),
                             RunStatus::Breakpoint => break,
@@ -145,10 +155,29 @@ pub(crate) fn run(
                                 break;
                             }
                         }
+
+                        if let Ok(Message::RunningCommand(RunningCommand::Stop)) =
+                            receiver.try_recv()
+                        {
+                            sender.send(frontend::Message::LeaveRunningMode)?;
+                            break;
+                        }
+
+                        let end = Instant::now();
+                        let delta = end - start;
+
+                        if state.config.view_updates == ViewUpdates::All
+                            && delta < Duration::from_millis(state.config.step_ms as u64)
+                        {
+                            std::thread::sleep(Duration::from_millis(
+                                state.config.step_ms - delta.as_millis() as u64,
+                            ));
+                        }
                     }
                     update_frontend(&sender, &state)?;
                 }
                 RunningCommand::ToggleBreakpoint => state.grid.toggle_current_breakpoint(),
+                RunningCommand::Stop => (),
             },
             Message::UpdateProperty(property, value) => match property.as_ref() {
                 "heat_diffusion" => match value.parse() {
@@ -204,12 +233,6 @@ fn step(
     state: &mut State,
     live: bool,
 ) -> AnyResult<RunStatus> {
-    let mut log = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open("test.log")?;
-
     let cell = state.grid.get_current();
 
     let mut grid_update = false;
@@ -289,8 +312,6 @@ fn step(
 
         CellValue::Dir(dir) => state.grid.set_cursor_dir(dir),
         CellValue::If(if_dir) => {
-            log.write_all(b"Going through IF")?;
-
             let (non_zero, zero) = match if_dir {
                 IfDir::Horizontal => (Direction::Left, Direction::Right),
                 IfDir::Vertical => (Direction::Up, Direction::Down),
@@ -298,10 +319,8 @@ fn step(
 
             let value = state.stack.pop().unwrap_or(0);
             if value == 0 {
-                log.write_all(format!("Going {:?}", zero).as_bytes())?;
                 state.grid.set_cursor_dir(zero);
             } else {
-                log.write_all(format!("Going {:?}", non_zero).as_bytes())?;
                 state.grid.set_cursor_dir(non_zero);
             }
         }
@@ -324,7 +343,6 @@ fn step(
     state.grid.reduce_heat(state.config.heat_diffusion);
     state.grid.set_current_heat(128);
 
-    log.write_all(format!("Went {:?}", state.grid.get_cursor_dir()).as_bytes())?;
     state.grid.move_cursor(state.grid.get_cursor_dir(), false);
 
     if live {

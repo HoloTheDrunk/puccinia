@@ -40,30 +40,60 @@ impl StatefulWidget for Grid {
     type State = (EditorMode, frontend::Config);
 
     fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, (mode, config): &mut Self::State) {
-        let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
+        // let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
         let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;
 
-        let target_cell_count = (area.width as usize / 2 - 2).min(self.inner[0].len());
-
-        let lid = self.lids.to_string().repeat(target_cell_count * 2 + 1);
-
-        let top_lid = format!(
-            "{}{lid}{}",
-            self.corners.map(|arr| arr[0]).unwrap_or(' '),
-            self.corners.map(|arr| arr[1]).unwrap_or(' ')
-        );
-
-        let bot_lid = format!(
-            "{}{lid}{}",
-            self.corners.map(|arr| arr[2]).unwrap_or(' '),
-            self.corners.map(|arr| arr[3]).unwrap_or(' ')
-        );
-
         let default_style = Style::default().fg(Color::White).bg(Color::Reset);
+
+        let target_cell_count = (area.width as usize / 2 - 2 - self.pan.0).min(self.inner[0].len());
+        // let should_crop = target_cell_count < self.width;
+        let clip_right = ((target_cell_count - self.pan.0) * 2 + 1) > area.width as usize;
+
+        let lid_length = (target_cell_count - self.pan.0) * 2 + 1 + (self.pan.0 != 0) as usize;
+        let lid = self.lids.to_string().repeat(lid_length);
+        let (mut top_lid, mut bot_lid) = (String::new(), String::new());
+
+        if self.pan.1 == 0 {
+            if self.pan.0 == 0 {
+                top_lid.push(self.corners.map(|arr| arr[0]).unwrap_or(' '));
+            }
+
+            top_lid.push_str(lid.as_ref());
+
+            if !clip_right {
+                top_lid.push(self.corners.map(|arr| arr[1]).unwrap_or(' '));
+            }
+        } else {
+            top_lid = format!(
+                "{}{}{}",
+                if self.pan.0 == 0 { self.sides } else { ' ' },
+                " ".repeat(lid_length - (self.pan.0 != 0) as usize).as_str(),
+                self.sides
+            );
+        }
+
+        if (self.height - self.pan.1) < area.height as usize {
+            if self.pan.0 == 0 {
+                bot_lid.push(self.corners.map(|arr| arr[2]).unwrap_or(' '));
+            }
+
+            bot_lid.push_str(lid.as_ref());
+
+            if !clip_right {
+                bot_lid.push(self.corners.map(|arr| arr[3]).unwrap_or(' '));
+            }
+        }
+
         buf.set_string(area.left(), area.top(), top_lid.as_str(), default_style);
 
-        let left_side = Span::styled(format!("{} ", self.sides), default_style);
-        let right_side = Span::styled(format!(" {}", self.sides), default_style);
+        let left_side = Span::styled(
+            format!("{} ", if self.pan.0 == 0 { self.sides } else { ' ' }),
+            default_style,
+        );
+        let right_side = Span::styled(
+            format!(" {}", if !clip_right { self.sides } else { ' ' }),
+            default_style,
+        );
 
         self.inner
             .iter()
@@ -95,12 +125,14 @@ impl StatefulWidget for Grid {
                 );
             });
 
-        buf.set_string(
-            area.left(),
-            area.top() + height,
-            bot_lid.as_str(),
-            default_style,
-        );
+        if (self.height - self.pan.1) < area.height as usize {
+            buf.set_string(
+                area.left(),
+                area.top() + height - self.pan.1 as u16,
+                bot_lid.as_str(),
+                default_style,
+            );
+        }
 
         let (x, y) = self.cursor;
         let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
@@ -150,7 +182,7 @@ impl From<String> for Grid {
     fn from(value: String) -> Self {
         let mut res = Grid::empty();
 
-        res.load(value);
+        res.load_values(value);
 
         res
     }
@@ -185,13 +217,18 @@ impl Grid {
         }
     }
 
-    pub fn load(&mut self, grid: String) {
-        self.clear();
+    pub fn load_values(&mut self, grid: String) {
+        self.clear_values();
+
         if grid.is_empty() {
-            self.append_line(Some(" "))
+            self.append_line(Some(" "));
         } else {
             grid.lines().for_each(|line| self.append_line(Some(line)));
+            // self.width = grid.lines().map(|line| line.len()).max().unwrap();
+            // self.height = grid.lines().count();
         }
+
+        self.trim();
     }
 
     pub fn load_breakpoints(&mut self, breakpoints: Vec<(usize, usize)>) {
@@ -400,6 +437,16 @@ impl Grid {
         (self.width, self.height)
     }
 
+    pub fn pan(&mut self, dir: Direction) {
+        match dir {
+            Direction::Up => self.pan = (self.pan.0, self.pan.1.saturating_sub(1)),
+            Direction::Down => self.pan = (self.pan.0, (self.pan.1 + 1).min(self.height - 1)),
+            Direction::Left => self.pan = (self.pan.0.saturating_sub(1), self.pan.1),
+            Direction::Right => self.pan = ((self.pan.0 + 1).min(self.width - 1), self.pan.1),
+            Direction::Random => unreachable!(),
+        }
+    }
+
     /// Completely clears grid
     pub fn clear(&mut self) {
         self.inner = vec![vec![CellValue::Empty.into(); self.width].into(); self.height].into();
@@ -517,5 +564,9 @@ impl Grid {
         }
 
         res
+    }
+
+    pub fn check_bounds(&self, (x, y): (usize, usize)) -> bool {
+        x < self.width && y < self.height
     }
 }

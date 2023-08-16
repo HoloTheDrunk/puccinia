@@ -10,6 +10,7 @@ use crate::{
 
 use std::{
     io::Write,
+    path::Path,
     str::FromStr,
     sync::mpsc::{Receiver, Sender},
     time::{Duration, Instant},
@@ -100,10 +101,14 @@ pub(crate) fn run(
     let path = args.input.as_str();
 
     let mut state = State {
-        grid: Grid::from(
-            std::fs::read_to_string(path)
-                .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?,
-        ),
+        grid: if Path::new(path).is_file() {
+            Grid::from(
+                std::fs::read_to_string(path)
+                    .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?,
+            )
+        } else {
+            Grid::default()
+        },
         ..Default::default()
     };
 
@@ -117,7 +122,9 @@ pub(crate) fn run(
             }
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
             Message::Write(Some(path)) => {
-                std::fs::write(path, state.grid.dump())?;
+                let mut to_save = state.grid.clone();
+                to_save.trim();
+                std::fs::write(path, to_save.dump())?;
             }
             Message::Write(None) => std::fs::write(path, state.grid.dump())?,
             Message::Sync(grid) => {
@@ -334,7 +341,9 @@ fn step(
 
         CellValue::Bridge => {
             state.grid.set_current_heat(128);
-            state.grid.move_cursor(state.grid.get_cursor_dir(), false);
+            state
+                .grid
+                .move_cursor(state.grid.get_cursor_dir(), false, false);
         }
 
         CellValue::Number(num) => state.stack.push(num as i32),
@@ -350,7 +359,9 @@ fn step(
     state.grid.reduce_heat(state.config.heat_diffusion);
     state.grid.set_current_heat(128);
 
-    state.grid.move_cursor(state.grid.get_cursor_dir(), false);
+    state
+        .grid
+        .move_cursor(state.grid.get_cursor_dir(), false, false);
 
     if live {
         update_frontend(sender, state)?;

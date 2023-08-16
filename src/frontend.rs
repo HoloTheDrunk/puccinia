@@ -521,10 +521,15 @@ fn handle_events_insert_mode(
     match code {
         KeyCode::Char(c) => {
             state.grid.set_current(CellValue::from(c));
-            state.grid.move_cursor(state.grid.get_cursor_dir(), true);
+            state
+                .grid
+                .move_cursor(state.grid.get_cursor_dir(), true, true);
         }
         KeyCode::Backspace => {
-            if !state.grid.move_cursor(-state.grid.get_cursor_dir(), false) {
+            if !state
+                .grid
+                .move_cursor(-state.grid.get_cursor_dir(), false, false)
+            {
                 state.grid.set_current(CellValue::from(' '));
             }
         }
@@ -801,10 +806,10 @@ fn handle_events_normal_mode(
         }
         (KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')), false) => {
             match c {
-                'h' => state.grid.move_cursor(Direction::Left, true),
-                'j' => state.grid.move_cursor(Direction::Down, true),
-                'k' => state.grid.move_cursor(Direction::Up, true),
-                'l' => state.grid.move_cursor(Direction::Right, true),
+                'h' => state.grid.move_cursor(Direction::Left, true, false),
+                'j' => state.grid.move_cursor(Direction::Down, true, false),
+                'k' => state.grid.move_cursor(Direction::Up, true, false),
+                'l' => state.grid.move_cursor(Direction::Right, true, false),
                 _ => unreachable!(),
             };
         }

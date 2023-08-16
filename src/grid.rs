@@ -377,27 +377,48 @@ impl Grid {
 
     /// Moves cursor by an offset, possibly extending the grid to the right. Returns whether or not
     /// the cursor was wrapped around the grid.
-    pub fn move_cursor(&mut self, dir: Direction, update_dir: bool) -> bool {
+    pub fn move_cursor(&mut self, dir: Direction, update_dir: bool, resize: bool) -> bool {
         if update_dir {
             self.cursor_direction = dir;
         }
 
         let (x, y) = dir.into();
         let (og_x, og_y) = self.cursor;
-        let (new_x, new_y) = (og_x as i32 + x, og_y as i32 + y);
+        let (mut new_x, mut new_y) = (og_x as i32 + x, og_y as i32 + y);
 
-        let wrap = |val: i32, max: i32| {
-            if val < 0 {
-                (true, max - 1)
-            } else if val >= max {
-                (true, 0)
-            } else {
-                (false, val)
+        let wrapped = if resize {
+            if new_x < 0 {
+                self.prepend_column();
+                new_x = 0;
+            } else if new_x == self.width as i32 {
+                self.append_column();
             }
+
+            if new_y < 0 {
+                self.prepend_line(None);
+                new_y = 0;
+            } else if new_y == self.height as i32 {
+                self.append_line(None);
+            }
+
+            false
+        } else {
+            let wrap = |val: i32, max: i32| {
+                if val < 0 {
+                    (true, max - 1)
+                } else if val >= max {
+                    (true, 0)
+                } else {
+                    (false, val)
+                }
+            };
+            let (is_wrapped_x, wrapped_x) = wrap(new_x, self.width as i32);
+            let (is_wrapped_y, wrapped_y) = wrap(new_y, self.height as i32);
+            new_x = wrapped_x;
+            new_y = wrapped_y;
+
+            is_wrapped_x | is_wrapped_y
         };
-        let (wrapped_x, new_x) = wrap(new_x, self.width as i32);
-        let (wrapped_y, new_y) = wrap(new_y, self.height as i32);
-        let wrapped = wrapped_x | wrapped_y;
 
         self.set_cursor(new_x as usize, new_y as usize).expect(
             "Invalid move; this should be impossible, please contact the developer through a GitHub issue.",

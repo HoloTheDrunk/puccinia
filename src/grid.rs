@@ -139,12 +139,7 @@ impl StatefulWidget for Grid {
         let blink = self.last_move.elapsed() < Duration::from_millis(1000)
             || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
-        let cursor_color = match mode {
-            EditorMode::Normal => Color::White,
-            EditorMode::Command(_) => Color::DarkGray,
-            EditorMode::Insert => Color::Yellow,
-            EditorMode::Running => Color::Red,
-        };
+        let cursor_color = Color::from(&*mode);
         let cursor_style = if blink {
             Style::default().bg(cursor_color)
         } else {
@@ -465,6 +460,18 @@ impl Grid {
             Direction::Left => self.pan = (self.pan.0.saturating_sub(1), self.pan.1),
             Direction::Right => self.pan = ((self.pan.0 + 1).min(self.width - 1), self.pan.1),
             Direction::Random => unreachable!(),
+        }
+    }
+
+    /// Loops over an area, running the provided function.
+    pub fn loop_over<F>(&mut self, (start, end): ((usize, usize), (usize, usize)), mut func: F)
+    where
+        F: FnMut(usize, usize, &mut Cell),
+    {
+        for x in (start.0.min(end.0))..=(end.0.max(start.0)) {
+            for y in (start.1.min(end.1))..=(end.1.max(start.1)) {
+                func(x, y, self.inner.get_mut(y).unwrap().get_mut(x).unwrap());
+            }
         }
     }
 

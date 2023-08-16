@@ -130,10 +130,24 @@ pub enum EditorMode {
     Normal,
     /// Command input mode
     Command(String),
-    /// Text edition mode
+    /// Text selection mode
+    Visual((usize, usize), (usize, usize)),
+    /// Text insertion mode
     Insert,
     /// Running state
     Running,
+}
+
+impl From<&EditorMode> for Color {
+    fn from(value: &EditorMode) -> Self {
+        match value {
+            EditorMode::Normal => Color::White,
+            EditorMode::Command(_) => Color::DarkGray,
+            EditorMode::Visual(_, _) => Color::Cyan,
+            EditorMode::Insert => Color::Yellow,
+            EditorMode::Running => Color::Red,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -408,6 +422,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
             .style(Style::default().fg(match state.mode {
                 EditorMode::Normal => Color::White,
                 EditorMode::Command(_) => Color::DarkGray,
+                EditorMode::Visual(_, _) => Color::Cyan,
                 EditorMode::Insert => Color::Yellow,
                 EditorMode::Running => Color::Red,
             })),
@@ -464,6 +479,9 @@ fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResul
                                 sender,
                             );
                         }
+                        EditorMode::Visual(_, _) => {
+                            handle_events_visual_mode((code, shift, ctrl), state, sender)?;
+                        }
                         EditorMode::Insert => {
                             handle_events_insert_mode((code, shift, ctrl), state, sender)?;
                         }
@@ -482,7 +500,7 @@ fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResul
 }
 
 fn handle_events_running_mode(
-    (code, shift, ctrl): (KeyCode, bool, bool),
+    (code, _shift, ctrl): (KeyCode, bool, bool),
     state: &mut State,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
@@ -513,8 +531,45 @@ fn handle_events_running_mode(
     Ok(())
 }
 
+fn handle_events_visual_mode(
+    (code, _shift, _ctrl): (KeyCode, bool, bool),
+    state: &mut State,
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
+    let EditorMode::Visual(ref mut start, ref mut end) = state.mode else { unreachable!() };
+
+    match code {
+        KeyCode::Char('d') => {
+            state
+                .grid
+                .loop_over((*start, *end), |_x, _y, cell| cell.value = CellValue::Empty);
+
+            state.mode = EditorMode::Normal;
+        }
+        KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
+            match c {
+                'h' => state.grid.move_cursor(Direction::Left, true, false),
+                'j' => state.grid.move_cursor(Direction::Down, true, false),
+                'k' => state.grid.move_cursor(Direction::Up, true, false),
+                'l' => state.grid.move_cursor(Direction::Right, true, false),
+                _ => unreachable!(),
+            };
+
+            *end = state.grid.get_cursor();
+        }
+        KeyCode::Esc => state.mode = EditorMode::Normal,
+        _ => (),
+    }
+
+    if state.mode == EditorMode::Normal {
+        sender.send(logic::Message::Sync(state.grid.dump()))?;
+    }
+
+    Ok(())
+}
+
 fn handle_events_insert_mode(
-    (code, shift, ctrl): (KeyCode, bool, bool),
+    (code, _shift, _ctrl): (KeyCode, bool, bool),
     state: &mut State,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
@@ -547,7 +602,7 @@ fn handle_events_insert_mode(
 }
 
 fn handle_events_command_mode(
-    (code, shift, ctrl): (KeyCode, bool, bool),
+    (code, _shift, _ctrl): (KeyCode, bool, bool),
     mut cmd: String,
     state: &mut State,
     sender: &Sender<logic::Message>,
@@ -794,17 +849,21 @@ fn handle_events_normal_mode(
     state: &mut State,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<bool> {
-    match (code, ctrl) {
-        (KeyCode::Char('i'), false) => {
+    match code {
+        KeyCode::Char('i') => {
             state.mode = EditorMode::Insert;
         }
-        (KeyCode::Char('f'), false) => {
+        KeyCode::Char('f') => {
             state.config.run_area_position = state.config.run_area_position.next();
         }
-        (KeyCode::Char('b'), false) => {
+        KeyCode::Char('b') => {
             state.grid.toggle_current_breakpoint();
         }
-        (KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')), false) => {
+        KeyCode::Char('v') => {
+            let pos = state.grid.get_cursor();
+            state.mode = EditorMode::Visual(pos, pos);
+        }
+        KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             match c {
                 'h' => state.grid.move_cursor(Direction::Left, true, false),
                 'j' => state.grid.move_cursor(Direction::Down, true, false),
@@ -813,7 +872,7 @@ fn handle_events_normal_mode(
                 _ => unreachable!(),
             };
         }
-        (KeyCode::Char(c @ ('H' | 'J' | 'K' | 'L')), false) => {
+        KeyCode::Char(c @ ('H' | 'J' | 'K' | 'L')) => {
             match c {
                 'H' => state.grid.prepend_column(),
                 'J' => state.grid.append_line(None),
@@ -822,8 +881,8 @@ fn handle_events_normal_mode(
                 _ => unreachable!(),
             };
         }
-        (KeyCode::Char('r'), true) => return handle_command("run", state, sender),
-        (KeyCode::Esc, false) => state.tooltip = None,
+        KeyCode::Char('r') if ctrl => return handle_command("run", state, sender),
+        KeyCode::Esc => state.tooltip = None,
         _ => (),
     }
 

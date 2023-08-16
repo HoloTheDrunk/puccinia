@@ -73,6 +73,7 @@ struct Config {
 }
 
 #[derive(Clone, Copy, Debug, EnumString, EnumVariantNames, PartialEq, Eq)]
+#[strum(ascii_case_insensitive)]
 enum ViewUpdates {
     None,
     Partial,
@@ -163,15 +164,15 @@ pub(crate) fn run(
                             break;
                         }
 
-                        let end = Instant::now();
-                        let delta = end - start;
+                        if state.config.view_updates == ViewUpdates::All && state.config.step_ms > 10 {
+                            let end = Instant::now();
+                            let delta = end - start;
 
-                        if state.config.view_updates == ViewUpdates::All
-                            && delta < Duration::from_millis(state.config.step_ms as u64)
-                        {
-                            std::thread::sleep(Duration::from_millis(
-                                state.config.step_ms - delta.as_millis() as u64,
-                            ));
+                            if delta < Duration::from_millis(state.config.step_ms as u64) {
+                                std::thread::sleep(Duration::from_millis(
+                                    state.config.step_ms - delta.as_millis() as u64,
+                                ));
+                            }
                         }
                     }
                     update_frontend(&sender, &state)?;
@@ -194,6 +195,12 @@ pub(crate) fn run(
                         ViewUpdates::VARIANTS
                     )))?,
                 },
+                "step_ms" => match value.parse() {
+                    Ok(step_ms) => state.config.step_ms = step_ms,
+                    Err(_) => sender.send(frontend::Message::LogicError(format!(
+                        "Failed to parse `{value}` to u64; valid values are from 0 to <big> included."
+                    )))?,
+                }
                 _ => sender.send(frontend::Message::LogicError(format!(
                     "Unrecognized property `{property}`",
                 )))?,

@@ -291,11 +291,11 @@ fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> AnyRe
                 if state.config.live_output {
                     state.output.push_str(s.as_ref())
                 } else {
-                    state.output_buffer = {
+                    state.output_buffer = Some({
                         let mut current = state.output_buffer.clone().unwrap_or_else(String::new);
                         current.push_str(s.as_ref());
-                        state.output_buffer.take()
-                    }
+                        current
+                    })
                 }
             }
         },
@@ -763,6 +763,11 @@ fn handle_set_command(
             args[0].to_owned(),
         ))?,
 
+        ("step_ms", 1) => sender.send(logic::Message::UpdateProperty(
+            property.to_owned(),
+            args[0].to_owned(),
+        ))?,
+
         _ => {
             return Err(Error::Command(CommandError::Unknown(
                 property.to_owned(),
@@ -770,6 +775,11 @@ fn handle_set_command(
             )))
         }
     }
+
+    state.tooltip = Some(Tooltip::Info(format!(
+        "Set {property} to {}",
+        args.join(" ")
+    )));
 
     Ok(())
 }

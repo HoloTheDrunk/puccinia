@@ -37,16 +37,15 @@ pub struct Grid {
 }
 
 impl StatefulWidget for Grid {
-    type State = (EditorMode, frontend::Config);
+    type State = frontend::State;
 
-    fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, (mode, config): &mut Self::State) {
+    fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, state: &mut Self::State) {
         // let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
         let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;
 
         let default_style = Style::default().fg(Color::White).bg(Color::Reset);
 
         let target_cell_count = (area.width as usize / 2 - 2 - self.pan.0).min(self.inner[0].len());
-        // let should_crop = target_cell_count < self.width;
         let clip_right = ((target_cell_count - self.pan.0) * 2 + 1) > area.width as usize;
 
         let lid_length = (target_cell_count - self.pan.0) * 2 + 1 + (self.pan.0 != 0) as usize;
@@ -104,7 +103,7 @@ impl StatefulWidget for Grid {
                     line.iter()
                         .skip(self.pan.0)
                         .take(target_cell_count)
-                        .map(|cell| cell.to_span(&config)),
+                        .map(|cell| cell.to_span(&state.config)),
                     Span::styled(" ", default_style),
                 )
                 .collect::<Vec<_>>();
@@ -134,12 +133,30 @@ impl StatefulWidget for Grid {
             );
         }
 
+        if let EditorMode::Visual(start, end) = state.mode {
+            let (start, end) = (
+                (
+                    area.left() + 2 + 2 * start.0.min(end.0) as u16,
+                    area.top() + 1 + start.1.min(end.1) as u16,
+                ),
+                (
+                    area.left() + 2 + 2 * end.0.max(start.0) as u16,
+                    area.top() + 1 + end.1.max(start.1) as u16,
+                ),
+            );
+
+            buf.set_style(
+                Rect::new(start.0, start.1, end.0 - start.0 + 1, end.1 - start.1 + 1),
+                Style::default().bg(Color::Cyan),
+            );
+        }
+
         let (x, y) = self.cursor;
         let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
         let blink = self.last_move.elapsed() < Duration::from_millis(1000)
             || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
-        let cursor_color = Color::from(&*mode);
+        let cursor_color = Color::from(&state.mode);
         let cursor_style = if blink {
             Style::default().bg(cursor_color)
         } else {

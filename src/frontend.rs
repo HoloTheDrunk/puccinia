@@ -5,6 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use arboard::Clipboard;
 use crossterm::event::KeyModifiers;
 use tui::{style::Color, widgets::Wrap};
 
@@ -44,6 +45,8 @@ pub enum Error {
     Terminated,
     #[error("{0}")]
     Command(CommandError),
+    #[error("Clipboard error: {0}")]
+    Clipboard(#[from] arboard::Error),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -104,23 +107,24 @@ impl RunAreaPosition {
     }
 }
 
-#[derive(Default, Debug)]
-struct State {
-    mode: EditorMode,
-    previous_mode: Option<EditorMode>,
+pub struct State {
+    pub mode: EditorMode,
+    pub previous_mode: Option<EditorMode>,
 
-    grid: Grid,
-    stack: Vec<i32>,
-    output: String,
-    output_buffer: Option<String>,
+    pub grid: Grid,
+    pub stack: Vec<i32>,
+    pub output: String,
+    pub output_buffer: Option<String>,
 
-    tooltip: Option<Tooltip>,
-    config: Config,
+    pub tooltip: Option<Tooltip>,
+    pub config: Config,
 
-    command_history: VecDeque<String>,
-    command_history_index: Option<usize>,
+    pub command_history: VecDeque<String>,
+    pub command_history_index: Option<usize>,
 
-    debug: Option<String>,
+    pub clipboard: Clipboard,
+
+    pub debug: Option<String>,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
@@ -199,7 +203,16 @@ fn wrapper<B: Backend>(
 
             live_output: true,
         },
-        ..Default::default()
+        mode: EditorMode::Normal,
+        previous_mode: None,
+        stack: Vec::new(),
+        output: String::new(),
+        output_buffer: None,
+        tooltip: None,
+        command_history: VecDeque::new(),
+        command_history_index: None,
+        clipboard: Clipboard::new()?,
+        debug: None,
     };
 
     main_loop(terminal, &mut state, &receiver, &sender)?;
@@ -435,7 +448,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
             vertical: 1,
             horizontal: 1,
         }),
-        &mut (state.mode.clone(), state.config.clone()),
+        state,
     );
 
     if let EditorMode::Command(ref cmd) = state.mode {
@@ -545,6 +558,21 @@ fn handle_events_visual_mode(
                 .loop_over((*start, *end), |_x, _y, cell| cell.value = CellValue::Empty);
 
             state.mode = EditorMode::Normal;
+        }
+        KeyCode::Char('y') => {
+            let mut block = String::new();
+
+            for y in (start.1.min(end.1))..=(end.1.max(start.1)) {
+                for x in (start.0.min(end.0))..=(end.0.max(start.0)) {
+                    block.push(state.grid.get(x, y).value.into());
+                }
+                block.push('\n');
+            }
+
+            state.mode = EditorMode::Normal;
+            if let Err(err) = state.clipboard.set_text(block) {
+                state.tooltip = Some(Tooltip::Error(err.to_string()));
+            }
         }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             match c {
@@ -880,6 +908,36 @@ fn handle_events_normal_mode(
                 'L' => state.grid.append_column(),
                 _ => unreachable!(),
             };
+        }
+        KeyCode::Char('p') => {
+            let content = match state.clipboard.get_text() {
+                Ok(v) => v,
+                Err(err) => {
+                    state.tooltip = Some(Tooltip::Error(err.to_string()));
+                    return Ok(false);
+                }
+            };
+            let c_width = content.lines().map(|line| line.len()).max().unwrap_or(0);
+            let c_height = content.lines().count();
+
+            let (x, y) = state.grid.get_cursor();
+            let (g_width, g_height) = state.grid.size();
+
+            for _ in g_width..(x + c_width) {
+                state.grid.append_column();
+            }
+
+            for _ in g_height..(y + c_height) {
+                state.grid.append_line(None);
+            }
+
+            for (j, line) in content.lines().enumerate() {
+                for (i, c) in line.chars().enumerate() {
+                    state.grid.set(x + i, y + j, c.into());
+                }
+            }
+
+            sender.send(logic::Message::Sync(state.grid.dump()))?;
         }
         KeyCode::Char('r') if ctrl => return handle_command("run", state, sender),
         KeyCode::Esc => state.tooltip = None,

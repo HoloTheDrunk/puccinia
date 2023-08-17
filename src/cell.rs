@@ -228,7 +228,6 @@ macro_rules! char_mapping {
     };
 }
 
-// FIXME: Broken Green color, may be due to terminal theme
 char_mapping! {
     NullaryOperator:
         Integer = '&' => Red,

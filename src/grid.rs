@@ -1,5 +1,3 @@
-use tui::{layout::Rect, widgets::StatefulWidget};
-
 use crate::{
     cell::{Cell, CellValue, Direction},
     frontend::{self, EditorMode},
@@ -13,8 +11,10 @@ use std::{
 use {
     itertools::intersperse,
     tui::{
+        layout::Rect,
         style::{Color, Modifier, Style},
         text::{Span, Spans},
+        widgets::StatefulWidget,
     },
 };
 

@@ -5,10 +5,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use arboard::Clipboard;
-use crossterm::event::KeyModifiers;
-use tui::{style::Color, widgets::Wrap};
-
 use crate::{
     cell::{CellValue, Direction},
     grid::Grid,
@@ -16,8 +12,9 @@ use crate::{
 };
 
 use {
+    arboard::Clipboard,
     crossterm::{
-        event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent},
+        event::{DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyModifiers},
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
@@ -25,7 +22,9 @@ use {
     tui::{
         backend::{Backend, CrosstermBackend},
         layout::{Margin, Rect},
+        style::Color,
         style::Style,
+        widgets::Wrap,
         widgets::{Block, Borders, Paragraph},
         Frame, Terminal,
     },
@@ -33,8 +32,6 @@ use {
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Unknown error: {0}")]
-    Unknown(String),
     #[error("Channel receive error: {0:?}")]
     ChannelRecv(#[from] mpsc::TryRecvError),
     #[error("Channel send error: {0:?}")]
@@ -51,8 +48,6 @@ pub enum Error {
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
-    #[error("{0}")]
-    Unique(String),
     #[error("{0:?} must be UTF-8")]
     EncodingError(CommandPart),
     #[error("Unrecognized property: {0}")]
@@ -520,6 +515,7 @@ fn handle_events_running_mode(
     match code {
         KeyCode::Esc => {
             state.mode = EditorMode::Normal;
+            state.grid.clear_heat();
             sender.send(logic::Message::RunningCommand(logic::RunningCommand::Stop))?;
         }
         KeyCode::Char('c') if ctrl => {
@@ -549,7 +545,9 @@ fn handle_events_visual_mode(
     state: &mut State,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
-    let EditorMode::Visual(ref mut start, ref mut end) = state.mode else { unreachable!() };
+    let EditorMode::Visual(ref mut start, ref mut end) = state.mode else {
+        unreachable!()
+    };
 
     match code {
         KeyCode::Char('d') => {

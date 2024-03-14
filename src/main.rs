@@ -5,11 +5,11 @@ mod logic;
 
 use std::{sync::mpsc, thread::JoinHandle};
 
-use anyhow::bail;
-use clap::Parser;
-
-use anyhow::Result;
-use crossterm::terminal::disable_raw_mode;
+use {
+    anyhow::{bail, Result},
+    clap::Parser,
+    crossterm::terminal::disable_raw_mode,
+};
 
 #[derive(Parser)]
 /// Minesweeper TUI editor and runner

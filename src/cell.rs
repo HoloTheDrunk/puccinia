@@ -1,10 +1,12 @@
-use anyhow::anyhow;
-use tui::{
-    style::{Color, Style},
-    text::Span,
-};
-
 use crate::frontend::Config;
+
+use {
+    anyhow::anyhow,
+    tui::{
+        style::{Color, Style},
+        text::Span,
+    },
+};
 
 /// Represents a single cell of the grid.
 #[derive(Clone, Debug, Default, Copy)]

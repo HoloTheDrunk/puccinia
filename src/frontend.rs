@@ -5,6 +5,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use itertools::Itertools;
+
 use crate::{
     cell::{CellValue, Direction},
     grid::Grid,
@@ -210,7 +212,10 @@ fn wrapper<B: Backend>(
         debug: None,
     };
 
-    main_loop(terminal, &mut state, &receiver, &sender)?;
+    // Keeping them separate for simplicity's sake as commands need to mutably borrow the state.
+    let commands = init_commands();
+
+    main_loop(terminal, &mut state, commands, &receiver, &sender)?;
 
     Ok(())
 }
@@ -250,6 +255,7 @@ fn restore_terminal<B: Backend + std::io::Write>(
 fn main_loop<B: Backend>(
     terminal: &mut Terminal<B>,
     state: &mut State,
+    commands: Vec<Command>,
     receiver: &Receiver<Message>,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
@@ -267,7 +273,7 @@ fn main_loop<B: Backend>(
 
         last_frame = Instant::now();
 
-        let stop = handle_events(state, sender)?;
+        let stop = handle_events(state, &commands, sender)?;
 
         try_receive_message(state, receiver)?;
 
@@ -453,7 +459,11 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     render_tooltip(f, grid_area, state);
 }
 
-fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResult<bool> {
+fn handle_events(
+    state: &mut State,
+    commands: &Vec<Command>,
+    sender: &Sender<logic::Message>,
+) -> AnyResult<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
             Ok(Event::Key(KeyEvent {
@@ -477,13 +487,19 @@ fn handle_events(state: &mut State, sender: &Sender<logic::Message>) -> AnyResul
                     },
                     _ => match state.mode {
                         EditorMode::Normal => {
-                            return handle_events_normal_mode((code, shift, ctrl), state, sender);
+                            return handle_events_normal_mode(
+                                (code, shift, ctrl),
+                                state,
+                                commands,
+                                sender,
+                            );
                         }
                         EditorMode::Command(ref cmd) => {
                             return handle_events_command_mode(
                                 (code, shift, ctrl),
                                 cmd.clone(),
                                 state,
+                                commands,
                                 sender,
                             );
                         }
@@ -631,6 +647,7 @@ fn handle_events_command_mode(
     (code, _shift, _ctrl): (KeyCode, bool, bool),
     mut cmd: String,
     state: &mut State,
+    commands: &Vec<Command>,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<bool> {
     let exit_command_mode = |state: &mut State| {
@@ -690,7 +707,7 @@ fn handle_events_command_mode(
                 state.command_history.push_front(cmd.clone());
             }
             state.command_history_index = None;
-            match handle_command(cmd.as_ref(), state, sender) {
+            match handle_command(cmd.as_ref(), state, commands, sender) {
                 Ok(exit) => return Ok(exit),
                 Err(err) => state.tooltip = Some(Tooltip::Error(err.to_string())),
             }
@@ -709,64 +726,128 @@ fn handle_events_command_mode(
     Ok(false)
 }
 
+// type Command = Box<dyn Fn(&str, &mut State, &Sender<logic::Message>) -> AnyResult<bool>>;
+
+struct Command {
+    names: Vec<&'static str>,
+    description: &'static str,
+    handler: Box<dyn Fn(Vec<String>, &mut State, &Sender<logic::Message>) -> AnyResult<bool>>,
+}
+
+fn init_commands() -> Vec<Command> {
+    vec![
+        Command {
+            names: vec!["q", "quit"],
+            description: "Quit the program",
+            handler: Box::new(|_args, _state, _sender| Ok(true)),
+        },
+        Command {
+            names: vec!["w", "write"],
+            description: "Save the buffer to a given path",
+            handler: Box::new(|args, _state, sender| {
+                let path = args[0].trim();
+                sender
+                    .send(logic::Message::Write(
+                        (!path.is_empty()).then(|| path.to_owned()),
+                    ))
+                    .unwrap();
+                Ok(false)
+            }),
+        },
+        Command {
+            names: vec!["t", "trim"],
+            description: "Trim the grid on all sides",
+            handler: Box::new(|_args, state, _sender| {
+                let trimmed = state.grid.trim();
+
+                state.tooltip = Some(Tooltip::Info(format!("{trimmed:?}")));
+
+                if trimmed.iter().any(|v| *v != 0)
+                    && !state.grid.check_bounds(state.grid.get_cursor())
+                {
+                    state.grid.set_cursor(0, 0).unwrap();
+                }
+
+                Ok(false)
+            }),
+        },
+        Command {
+            names: vec!["r", "run"],
+            description: "Start a run",
+            handler: Box::new(|_args, state, sender| {
+                state.grid.set_cursor(0, 0).unwrap();
+                state.grid.set_cursor_dir(Direction::Right);
+                state.grid.clear_heat();
+
+                state.stack = Vec::new();
+                state.output = String::new();
+
+                state.mode = EditorMode::Running;
+
+                if state.config.run_area_position == RunAreaPosition::Hidden {
+                    state.config.run_area_position = RunAreaPosition::Left;
+                }
+
+                sender.send(logic::Message::RunningCommand(
+                    logic::RunningCommand::Start(state.grid.dump(), state.grid.get_breakpoints()),
+                ))?;
+
+                Ok(false)
+            }),
+        },
+        Command {
+            names: vec!["s", "set"],
+            description: "Set a property (use ? for a list)",
+            handler: Box::new(|args, state, sender| {
+                // TODO: Create the same structured system for properties
+                handle_set_command(args, state, sender)?;
+                Ok(false)
+            }),
+        },
+        Command {
+            names: vec!["toggle"],
+            description: "Toggle a property",
+            handler: Box::new(|args, state, _sender| {
+                handle_toggle_command(args[0].trim(), state, _sender)?;
+                Ok(false)
+            }),
+        },
+    ]
+}
+
 // Returns whether or not the program should exit due to a fatal error.
 fn handle_command(
     cmd: &str,
     state: &mut State,
+    commands: &Vec<Command>,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<bool> {
-    match cmd.trim().as_bytes() {
-        b"" => (),
-        b"q" => return Ok(true),
-        [b'w', path @ ..] => {
-            let path = String::from_utf8(path.to_vec())
-                .map_err(|_| Error::Command(CommandError::EncodingError(CommandPart::Arguments)))?;
-            sender
-                .send(logic::Message::Write(
-                    (!path.trim().is_empty()).then(|| path.trim().to_owned()),
-                ))
-                .unwrap();
-        }
-        b"trim" => {
-            let trimmed = state.grid.trim();
+    let (name, args) = cmd.split_once(' ').unwrap_or((cmd, ""));
 
-            state.tooltip = Some(Tooltip::Info(format!("{trimmed:?}")));
-
-            if trimmed.iter().any(|v| *v != 0) && !state.grid.check_bounds(state.grid.get_cursor())
-            {
-                state.grid.set_cursor(0, 0).unwrap();
-            }
-        }
-        b"run" => {
-            state.grid.set_cursor(0, 0).unwrap();
-            state.grid.set_cursor_dir(Direction::Right);
-            state.grid.clear_heat();
-
-            state.stack = Vec::new();
-            state.output = String::new();
-
-            state.mode = EditorMode::Running;
-
-            if state.config.run_area_position == RunAreaPosition::Hidden {
-                state.config.run_area_position = RunAreaPosition::Left;
-            }
-
-            sender.send(logic::Message::RunningCommand(
-                logic::RunningCommand::Start(state.grid.dump(), state.grid.get_breakpoints()),
-            ))?;
-        }
-        [b's', b'e', b't', args @ ..] => {
-            let args = String::from_utf8(args.to_vec())
-                .map_err(|_| Error::Command(CommandError::EncodingError(CommandPart::Arguments)))?;
-            handle_set_command(args.trim(), state, sender)?;
-        }
-        [b't', b'o', b'g', b'g', b'l', b'e', args @ ..] => {
-            let args = String::from_utf8(args.to_vec())
-                .map_err(|_| Error::Command(CommandError::EncodingError(CommandPart::Arguments)))?;
-            handle_toggle_command(args.trim(), state, sender)?;
-        }
-        _ => state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`"))),
+    if name == "h" || name == "help" {
+        state.tooltip = Some(Tooltip::Info(
+            commands
+                .iter()
+                .map(|cmd| format!("{:?}: {}", cmd.names, cmd.description))
+                .collect::<Vec<String>>()
+                .join("\n"),
+        ));
+        return Ok(false);
     }
+
+    let args = args
+        .split(' ')
+        .map(str::trim)
+        .map(ToString::to_string)
+        .collect::<Vec<String>>();
+
+    for command in commands.iter() {
+        if command.names.contains(&name) {
+            return (command.handler)(args, state, sender);
+        }
+    }
+
+    state.tooltip = Some(Tooltip::Error(format!("Unknown command `{cmd}`")));
 
     Ok(false)
 }
@@ -822,19 +903,18 @@ fn handle_toggle_command(
 }
 
 fn handle_set_command(
-    args: &str,
+    args: Vec<String>,
     state: &mut State,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
-    let args = args.split(' ').collect::<Vec<&str>>();
     if args.len() < 1 {
         return Err(Error::Command(CommandError::InvalidCommandSyntax));
     }
 
-    let property = args[0];
+    let property = args[0].clone();
     let args = &args[1..];
 
-    match (property, args.len()) {
+    match (property.as_str(), args.len()) {
         ("lids", 1) => state.grid.lids = args[0].chars().next().unwrap(),
 
         ("sides", 1) => state.grid.sides = args[0].chars().next().unwrap(),
@@ -873,6 +953,7 @@ fn handle_set_command(
 fn handle_events_normal_mode(
     (code, _shift, ctrl): (KeyCode, bool, bool),
     state: &mut State,
+    commands: &Vec<Command>,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<bool> {
     match code {
@@ -937,7 +1018,7 @@ fn handle_events_normal_mode(
 
             sender.send(logic::Message::Sync(state.grid.dump()))?;
         }
-        KeyCode::Char('r') if ctrl => return handle_command("run", state, sender),
+        KeyCode::Char('r') if ctrl => return handle_command("run", state, commands, sender),
         KeyCode::Esc => state.tooltip = None,
         _ => (),
     }
@@ -953,15 +1034,25 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
             Tooltip::Error(err) => ("Error", err, Style::default().fg(Color::Red)),
         };
 
-        let trunc = content
-            .as_str()
-            .truncate_ellipse((area.width - 10) as usize);
+        let lines = content
+            .lines()
+            .map(str::trim)
+            .flat_map(|s| {
+                s.chars()
+                    .chunks(area.width as usize - 10)
+                    .into_iter()
+                    .map(|chunk| chunk.collect::<String>())
+                    .collect::<Vec<String>>()
+            })
+            .collect::<Vec<String>>();
 
         let command_area = Rect {
             x: area.left(),
-            y: area.bottom() - 3,
-            width: (trunc.len() as u16).max(title.len() as u16) + 4,
-            height: 3,
+            y: area.bottom() - 2 - lines.len().max(1) as u16,
+            width: (lines.iter().map(String::len).max().unwrap_or(0) as u16)
+                .max(title.len() as u16)
+                + 4,
+            height: lines.len().max(1) as u16 + 2,
         };
 
         frame.render_widget(
@@ -973,7 +1064,7 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
         );
 
         frame.render_widget(
-            Paragraph::new(trunc.clone()).style(style),
+            Paragraph::new(lines.join("\n").clone()).style(style),
             command_area.inner(&Margin {
                 vertical: 1,
                 horizontal: 2,

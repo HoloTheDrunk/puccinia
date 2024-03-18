@@ -1,4 +1,4 @@
-use crate::frontend::Config;
+use crate::frontend::prelude::Config;
 
 use {
     anyhow::anyhow,
@@ -108,34 +108,6 @@ impl Cell {
             })
             .bg(if config.heat && self.heat > 64 {
                 Color::Rgb((128. * (self.heat as f32 / 128 as f32)) as u8, 0, 0)
-            } else {
-                Color::Reset
-            })
-    }
-}
-
-impl<'s> From<&Cell> for Span<'s> {
-    fn from(cell: &Cell) -> Self {
-        Span::styled(char::from(cell.value).to_string(), cell.into())
-    }
-}
-
-impl From<&Cell> for Style {
-    fn from(cell: &Cell) -> Self {
-        Style::default()
-            .fg(match cell.value {
-                CellValue::Empty => Color::Reset,
-                CellValue::Op(op) => op.into(),
-                CellValue::Dir(dir) => dir.into(),
-                CellValue::If(cond) => cond.into(),
-                CellValue::StringMode => Color::Cyan,
-                CellValue::Bridge => Color::LightGreen,
-                CellValue::End => Color::Cyan,
-                CellValue::Number(_) => Color::Magenta,
-                CellValue::Char(_) => Color::White,
-            })
-            .bg(if cell.heat > 64 {
-                Color::Rgb((128. * (cell.heat as f32 / 128 as f32)) as u8, 0, 0)
             } else {
                 Color::Reset
             })

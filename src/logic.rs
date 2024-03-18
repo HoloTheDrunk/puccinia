@@ -3,7 +3,7 @@ use crate::{
         BinaryOperator, CellValue, Direction, IfDir, NullaryOperator, Operator, TernaryOperator,
         UnaryOperator,
     },
-    frontend,
+    frontend::{self, prelude::Message as FMessage},
     grid::Grid,
     Args,
 };
@@ -95,7 +95,7 @@ type AnyResult<T> = anyhow::Result<T>;
 
 pub(crate) fn run(
     args: Args,
-    sender: Sender<crate::frontend::Message>,
+    sender: Sender<FMessage>,
     receiver: Receiver<Message>,
 ) -> AnyResult<()> {
     let path = args.input.as_str();
@@ -149,7 +149,7 @@ pub(crate) fn run(
                 RunningCommand::Step => match step(&sender, &mut state, true)? {
                     RunStatus::Continue => (),
                     RunStatus::Breakpoint => (),
-                    RunStatus::End => sender.send(frontend::Message::LeaveRunningMode)?,
+                    RunStatus::End => sender.send(FMessage::LeaveRunningMode)?,
                 },
                 RunningCommand::SkipToBreakpoint => {
                     loop {
@@ -159,7 +159,7 @@ pub(crate) fn run(
                             RunStatus::Continue => (),
                             RunStatus::Breakpoint => break,
                             RunStatus::End => {
-                                sender.send(frontend::Message::LeaveRunningMode)?;
+                                sender.send(FMessage::LeaveRunningMode)?;
                                 break;
                             }
                         }
@@ -167,7 +167,7 @@ pub(crate) fn run(
                         if let Ok(Message::RunningCommand(RunningCommand::Stop)) =
                             receiver.try_recv()
                         {
-                            sender.send(frontend::Message::LeaveRunningMode)?;
+                            sender.send(FMessage::LeaveRunningMode)?;
                             break;
                         }
 
@@ -175,7 +175,7 @@ pub(crate) fn run(
                             let end = Instant::now();
                             let delta = end - start;
 
-                            if delta < Duration::from_millis(state.config.step_ms as u64) {
+                            if delta < Duration::from_millis(state.config.step_ms) {
                                 std::thread::sleep(Duration::from_millis(
                                     state.config.step_ms - delta.as_millis() as u64,
                                 ));
@@ -190,13 +190,13 @@ pub(crate) fn run(
             Message::UpdateProperty(property, value) => match property.as_ref() {
                 "heat_diffusion" => match value.parse() {
                     Ok(heat_diffusion) => state.config.heat_diffusion = heat_diffusion,
-                    Err(_) => sender.send(frontend::Message::LogicError(format!(
+                    Err(_) => sender.send(FMessage::LogicError(format!(
                         "Failed to parse `{value}` to u8; valid values are from 0 to 255 included."
                     )))?,
                 },
                 "view_updates" => match ViewUpdates::from_str(value.as_ref()) {
                     Ok(vu) => state.config.view_updates = vu,
-                    Err(_) => sender.send(frontend::Message::LogicError(format!(
+                    Err(_) => sender.send(FMessage::LogicError(format!(
                         "Unrecognized ViewUpdates variant {}, valid variants are {:?}",
                         value,
                         ViewUpdates::VARIANTS
@@ -204,29 +204,29 @@ pub(crate) fn run(
                 },
                 "step_ms" => match value.parse() {
                     Ok(step_ms) => state.config.step_ms = step_ms,
-                    Err(_) => sender.send(frontend::Message::LogicError(format!(
+                    Err(_) => sender.send(FMessage::LogicError(format!(
                         "Failed to parse `{value}` to u64; valid values are from 0 to <big> included."
                     )))?,
                 }
-                _ => sender.send(frontend::Message::LogicError(format!(
+                _ => sender.send(FMessage::LogicError(format!(
                     "Unrecognized property `{property}`",
                 )))?,
             },
             Message::ToggleProperty(property) => match property.as_str() {
-                _ => sender.send(frontend::Message::LogicError(format!(
+                _ => sender.send(FMessage::LogicError(format!(
                     "Unrecognized property `{property}`",
                 )))?,
             },
         }
     }
 
-    sender.send(frontend::Message::Break)?;
+    sender.send(FMessage::Break)?;
 
     Ok(())
 }
 
-fn update_frontend(sender: &Sender<crate::frontend::Message>, state: &State) -> AnyResult<()> {
-    sender.send(frontend::Message::Load((
+fn update_frontend(sender: &Sender<FMessage>, state: &State) -> AnyResult<()> {
+    sender.send(FMessage::Load((
         state.grid.clone(),
         state.stack.clone(),
         state.grid.get_breakpoints(),
@@ -242,11 +242,7 @@ enum RunStatus {
 }
 
 /// Run a single step, updating the frontend as required.
-fn step(
-    sender: &Sender<crate::frontend::Message>,
-    state: &mut State,
-    live: bool,
-) -> AnyResult<RunStatus> {
+fn step(sender: &Sender<FMessage>, state: &mut State, live: bool) -> AnyResult<RunStatus> {
     let cell = state.grid.get_current();
 
     let mut grid_update = false;
@@ -273,9 +269,9 @@ fn step(
                     }
                     UnaryOperator::Pop => (),
                     UnaryOperator::WriteNumber => {
-                        sender.send(frontend::Message::Output(popped.to_string()))?;
+                        sender.send(FMessage::Output(popped.to_string()))?;
                     }
-                    UnaryOperator::WriteASCII => sender.send(frontend::Message::Output(
+                    UnaryOperator::WriteASCII => sender.send(FMessage::Output(
                         String::from_utf8([popped as u8].to_vec())?,
                     ))?,
                 }

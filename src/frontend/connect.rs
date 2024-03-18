@@ -16,6 +16,7 @@ pub enum Message {
     SetCell { x: usize, y: usize, v: char },
     LeaveRunningMode,
     Output(String),
+    Input(InputMode),
 }
 
 pub fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> AnyResult<()> {
@@ -54,6 +55,9 @@ pub fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> A
                         current
                     })
                 }
+            }
+            Message::Input(mode) => {
+                state.mode = EditorMode::Input(mode, "".to_string());
             }
         },
         Err(err) => match err {

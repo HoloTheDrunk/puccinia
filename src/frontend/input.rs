@@ -62,6 +62,15 @@ pub fn handle_events(
                         EditorMode::Running => {
                             handle_events_running_mode((code, shift, ctrl), state, sender)?;
                         }
+                        EditorMode::Input(mode, ref string) => {
+                            handle_events_input_mode(
+                                (code, shift, ctrl),
+                                mode,
+                                string.clone(),
+                                state,
+                                sender,
+                            )?;
+                        }
                     },
                 }
             }
@@ -71,6 +80,38 @@ pub fn handle_events(
     }
 
     Ok(false)
+}
+
+pub fn handle_events_input_mode(
+    (code, _shift, ctrl): (KeyCode, bool, bool),
+    input_mode: InputMode,
+    mut string: String,
+    state: &mut State,
+    sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
+    match code {
+        KeyCode::Char(c) if input_mode == InputMode::ASCII => {
+            string.push(c);
+            state.mode = EditorMode::Input(input_mode, string);
+        }
+        // TODO: Finish input handling
+        KeyCode::Enter if string.len() > 0 => {
+            let value = match input_mode {
+                InputMode::Integer => string
+                    .parse::<i32>()
+                    .map_err(|_| Error::Input(input_mode, string))?,
+                InputMode::ASCII => string.as_bytes()[0] as i32,
+            };
+            sender.send(logic::Message::Input(value))?;
+            state.tooltip = None;
+        }
+        KeyCode::Backspace => {
+            string.pop();
+            state.mode = EditorMode::Input(input_mode, string);
+        }
+        _ => (),
+    }
+    Ok(())
 }
 
 pub fn handle_events_running_mode(

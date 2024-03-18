@@ -54,6 +54,8 @@ pub enum Error {
     Command(CommandError),
     #[error("Clipboard error: {0}")]
     Clipboard(#[from] arboard::Error),
+    #[error("Input error: `{1}` is not {0:?}")]
+    Input(InputMode, String),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -287,13 +289,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
         Block::default()
             .title("Editor")
             .borders(Borders::ALL)
-            .style(Style::default().fg(match state.mode {
-                EditorMode::Normal => Color::White,
-                EditorMode::Command(_) => Color::DarkGray,
-                EditorMode::Visual(_, _) => Color::Cyan,
-                EditorMode::Insert => Color::Yellow,
-                EditorMode::Running => Color::Red,
-            })),
+            .style(Style::default().fg(Color::from(&state.mode))),
         grid_area,
     );
 

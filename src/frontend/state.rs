@@ -71,13 +71,21 @@ pub enum EditorMode {
     Insert,
     /// Running state
     Running,
+    /// Interactive input mode (& and ~)
+    Input(InputMode, String),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum InputMode {
+    Integer,
+    ASCII,
 }
 
 impl From<&EditorMode> for Color {
     fn from(value: &EditorMode) -> Self {
         match value {
             EditorMode::Normal => Color::White,
-            EditorMode::Command(_) => Color::DarkGray,
+            EditorMode::Command(_) | EditorMode::Input(_, _) => Color::DarkGray,
             EditorMode::Visual(_, _) => Color::Cyan,
             EditorMode::Insert => Color::Yellow,
             EditorMode::Running => Color::Red,

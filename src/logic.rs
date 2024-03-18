@@ -3,7 +3,10 @@ use crate::{
         BinaryOperator, CellValue, Direction, IfDir, NullaryOperator, Operator, TernaryOperator,
         UnaryOperator,
     },
-    frontend::{self, prelude::Message as FMessage},
+    frontend::{
+        self,
+        prelude::{InputMode, Message as FMessage},
+    },
     grid::Grid,
     Args,
 };
@@ -46,7 +49,7 @@ pub enum Message {
     Write(Option<String>),
     RunningCommand(RunningCommand),
     UpdateProperty(String, String),
-    ToggleProperty(String),
+    Input(i32),
 }
 
 #[derive(Debug)]
@@ -146,7 +149,7 @@ pub(crate) fn run(
                         .iter()
                         .for_each(|(x, y)| state.grid.toggle_breakpoint(*x, *y));
                 }
-                RunningCommand::Step => match step(&sender, &mut state, true)? {
+                RunningCommand::Step => match step(&sender, &receiver, &mut state, true)? {
                     RunStatus::Continue => (),
                     RunStatus::Breakpoint => (),
                     RunStatus::End => sender.send(FMessage::LeaveRunningMode)?,
@@ -155,7 +158,7 @@ pub(crate) fn run(
                     loop {
                         let start = Instant::now();
 
-                        match step(&sender, &mut state, false)? {
+                        match step(&sender, &receiver, &mut state, false)? {
                             RunStatus::Continue => (),
                             RunStatus::Breakpoint => break,
                             RunStatus::End => {
@@ -212,11 +215,9 @@ pub(crate) fn run(
                     "Unrecognized property `{property}`",
                 )))?,
             },
-            Message::ToggleProperty(property) => match property.as_str() {
-                _ => sender.send(FMessage::LogicError(format!(
-                    "Unrecognized property `{property}`",
-                )))?,
-            },
+            Message::Input(value) => {
+                sender.send(FMessage::LogicError(format!("Unexpected input at this time: {value}")))?
+            }
         }
     }
 
@@ -242,7 +243,12 @@ enum RunStatus {
 }
 
 /// Run a single step, updating the frontend as required.
-fn step(sender: &Sender<FMessage>, state: &mut State, live: bool) -> AnyResult<RunStatus> {
+fn step(
+    sender: &Sender<FMessage>,
+    receiver: &Receiver<Message>,
+    state: &mut State,
+    live: bool,
+) -> AnyResult<RunStatus> {
     let cell = state.grid.get_current();
 
     let mut grid_update = false;
@@ -256,8 +262,21 @@ fn step(sender: &Sender<FMessage>, state: &mut State, live: bool) -> AnyResult<R
 
         CellValue::Op(op) => match op {
             Operator::Nullary(op) => match op {
-                NullaryOperator::Integer => todo!(),
-                NullaryOperator::Ascii => todo!(),
+                NullaryOperator::Integer | NullaryOperator::Ascii => {
+                    if op == NullaryOperator::Integer {
+                        sender.send(FMessage::Input(InputMode::Integer))?;
+                    } else {
+                        sender.send(FMessage::Input(InputMode::ASCII))?;
+                    }
+
+                    let Message::Input(value) = receiver.recv()? else {
+                        sender.send(FMessage::LogicError("Expected input".to_string()))?;
+                        sender.send(FMessage::LeaveRunningMode)?;
+                        return Ok(RunStatus::End);
+                    };
+
+                    state.stack.push(value);
+                }
             },
             Operator::Unary(op) => {
                 let popped = state.stack.pop().unwrap_or(0);

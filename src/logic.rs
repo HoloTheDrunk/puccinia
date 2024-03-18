@@ -252,9 +252,11 @@ fn step(
     let mut grid_update = false;
 
     match cell.value {
-        CellValue::Empty => (),
-
         CellValue::StringMode => state.string_mode = !state.string_mode,
+
+        _ if state.string_mode => state.stack.push(char::from(cell.value) as i32),
+
+        CellValue::Empty => (),
 
         CellValue::Op(op) => match op {
             Operator::Nullary(op) => match op {

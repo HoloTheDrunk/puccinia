@@ -567,26 +567,18 @@ fn handle_events_visual_mode(
 
     match code {
         KeyCode::Char('d') => {
+            let (start, end) = (*start, *end);
+            copy_area_to_clipboard(start, end, state);
+
             state
                 .grid
-                .loop_over((*start, *end), |_x, _y, cell| cell.value = CellValue::Empty);
+                .loop_over((start, end), |_x, _y, cell| cell.value = CellValue::Empty);
 
             state.mode = EditorMode::Normal;
         }
         KeyCode::Char('y') => {
-            let mut block = String::new();
-
-            for y in (start.1.min(end.1))..=(end.1.max(start.1)) {
-                for x in (start.0.min(end.0))..=(end.0.max(start.0)) {
-                    block.push(state.grid.get(x, y).value.into());
-                }
-                block.push('\n');
-            }
-
-            state.mode = EditorMode::Normal;
-            if let Err(err) = state.clipboard.set_text(block) {
-                state.tooltip = Some(Tooltip::Error(err.to_string()));
-            }
+            let (start, end) = (*start, *end);
+            copy_area_to_clipboard(start, end, state);
         }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             match c {
@@ -726,23 +718,66 @@ fn handle_events_command_mode(
     Ok(false)
 }
 
-// type Command = Box<dyn Fn(&str, &mut State, &Sender<logic::Message>) -> AnyResult<bool>>;
-
 struct Command {
     names: Vec<&'static str>,
+    args: Vec<CommandArg>,
     description: &'static str,
     handler: Box<dyn Fn(Vec<String>, &mut State, &Sender<logic::Message>) -> AnyResult<bool>>,
+}
+
+impl ToString for Command {
+    fn to_string(&self) -> String {
+        let names = self.names.join("|");
+        let args = self.args.iter().map(ToString::to_string).join(" ");
+        format!(
+            "{}{}{}: {}",
+            names,
+            ["", " "][(args.len() > 0) as usize],
+            args,
+            self.description
+        )
+    }
+}
+
+struct CommandArg {
+    name: &'static str,
+    optional: bool,
+    arg_type: ArgType,
+}
+
+impl ToString for CommandArg {
+    fn to_string(&self) -> String {
+        let surround = [('<', '>'), ('[', ']')][self.optional as usize];
+        format!(
+            "{}{}:{:?}{}",
+            surround.0, self.name, self.arg_type, surround.1
+        )
+    }
+}
+
+#[derive(Debug)]
+enum ArgType {
+    String,
+    Number,
+    Boolean,
+    Any,
 }
 
 fn init_commands() -> Vec<Command> {
     vec![
         Command {
             names: vec!["q", "quit"],
+            args: vec![],
             description: "Quit the program",
             handler: Box::new(|_args, _state, _sender| Ok(true)),
         },
         Command {
             names: vec!["w", "write"],
+            args: vec![CommandArg {
+                name: "path",
+                optional: true,
+                arg_type: ArgType::String,
+            }],
             description: "Save the buffer to a given path",
             handler: Box::new(|args, _state, sender| {
                 let path = args[0].trim();
@@ -755,7 +790,26 @@ fn init_commands() -> Vec<Command> {
             }),
         },
         Command {
+            names: vec!["x", "exit"],
+            args: vec![CommandArg {
+                name: "path",
+                optional: true,
+                arg_type: ArgType::String,
+            }],
+            description: "Saves the buffer and quits the program",
+            handler: Box::new(|args, _state, sender| {
+                let path = args[0].trim();
+                sender
+                    .send(logic::Message::Write(
+                        (!path.is_empty()).then(|| path.to_owned()),
+                    ))
+                    .unwrap();
+                Ok(true)
+            }),
+        },
+        Command {
             names: vec!["t", "trim"],
+            args: vec![],
             description: "Trim the grid on all sides",
             handler: Box::new(|_args, state, _sender| {
                 let trimmed = state.grid.trim();
@@ -773,6 +827,7 @@ fn init_commands() -> Vec<Command> {
         },
         Command {
             names: vec!["r", "run"],
+            args: vec![],
             description: "Start a run",
             handler: Box::new(|_args, state, sender| {
                 state.grid.set_cursor(0, 0).unwrap();
@@ -797,6 +852,18 @@ fn init_commands() -> Vec<Command> {
         },
         Command {
             names: vec!["s", "set"],
+            args: vec![
+                CommandArg {
+                    name: "property",
+                    optional: false,
+                    arg_type: ArgType::String,
+                },
+                CommandArg {
+                    name: "value",
+                    optional: false,
+                    arg_type: ArgType::Any,
+                },
+            ],
             description: "Set a property (use ? for a list)",
             handler: Box::new(|args, state, sender| {
                 // TODO: Create the same structured system for properties
@@ -806,6 +873,11 @@ fn init_commands() -> Vec<Command> {
         },
         Command {
             names: vec!["toggle"],
+            args: vec![CommandArg {
+                name: "property",
+                optional: false,
+                arg_type: ArgType::String,
+            }],
             description: "Toggle a property",
             handler: Box::new(|args, state, _sender| {
                 handle_toggle_command(args[0].trim(), state, _sender)?;
@@ -826,11 +898,7 @@ fn handle_command(
 
     if name == "h" || name == "help" {
         state.tooltip = Some(Tooltip::Info(
-            commands
-                .iter()
-                .map(|cmd| format!("{:?}: {}", cmd.names, cmd.description))
-                .collect::<Vec<String>>()
-                .join("\n"),
+            commands.iter().map(ToString::to_string).join("\n"),
         ));
         return Ok(false);
     }
@@ -1070,5 +1138,21 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
                 horizontal: 2,
             }),
         );
+    }
+}
+
+fn copy_area_to_clipboard(start: (usize, usize), end: (usize, usize), state: &mut State) {
+    let mut block = String::new();
+
+    for y in (start.1.min(end.1))..=(end.1.max(start.1)) {
+        for x in (start.0.min(end.0))..=(end.0.max(start.0)) {
+            block.push(state.grid.get(x, y).value.into());
+        }
+        block.push('\n');
+    }
+
+    state.mode = EditorMode::Normal;
+    if let Err(err) = state.clipboard.set_text(block) {
+        state.tooltip = Some(Tooltip::Error(err.to_string()));
     }
 }

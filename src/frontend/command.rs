@@ -152,7 +152,7 @@ pub fn init_commands() -> Vec<Command> {
                 optional: true,
                 arg_type: ArgType::String,
             }],
-            description: "Saves the buffer and quits the program",
+            description: "Save the buffer and quit the program",
             handler: Box::new(|args, _state, _interactions, sender| {
                 let path = args[0].trim();
                 sender

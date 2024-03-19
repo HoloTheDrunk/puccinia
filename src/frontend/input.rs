@@ -74,6 +74,14 @@ pub fn handle_events(
                                 sender,
                             )?;
                         }
+                        EditorMode::History(hindex) => {
+                            handle_events_history_mode(
+                                (code, shift, ctrl),
+                                *hindex,
+                                state,
+                                sender,
+                            )?;
+                        }
                     },
                 }
             }
@@ -83,6 +91,41 @@ pub fn handle_events(
     }
 
     Ok(false)
+}
+
+pub fn handle_events_history_mode(
+    (code, _shift, ctrl): (KeyCode, bool, bool),
+    hindex: usize,
+    state: &mut State,
+    _sender: &Sender<logic::Message>,
+) -> AnyResult<()> {
+    match code {
+        KeyCode::Char('u') => {
+            let new_index = (hindex + 1).min(state.history.inner.len());
+            state.mode = EditorMode::History(new_index);
+            state.load_history(new_index);
+        }
+        KeyCode::Char('r') if ctrl => {
+            let new_index = hindex.saturating_sub(1);
+            state.mode = EditorMode::History(new_index);
+            state.load_history(new_index);
+        }
+        // Accept current state, discard future
+        KeyCode::Enter => {
+            state.mode = EditorMode::Normal;
+            state
+                .history
+                .inner
+                .truncate(state.history.inner.len() - hindex);
+        }
+        KeyCode::Esc => {
+            state.mode = EditorMode::Normal;
+            state.load_history(0);
+        }
+        _ => (),
+    }
+
+    Ok(())
 }
 
 pub fn handle_events_input_mode(
@@ -181,9 +224,11 @@ pub fn handle_events_visual_mode(
             let (start, end) = (*start, *end);
             copy_area_to_clipboard(start, end, state);
 
+            state.push_history();
             state
                 .grid
                 .loop_over_hv((start, end), |_x, _y, cell| cell.value = CellValue::Empty);
+            state.push_history();
 
             state.mode = EditorMode::Normal;
         }
@@ -237,6 +282,9 @@ pub fn handle_events_insert_mode(
             state.grid.set_current(CellValue::from(' '));
         }
         KeyCode::Esc => {
+            // Only snapshot once per edit session to avoid history cluttering
+            state.push_history();
+
             state.mode = EditorMode::Normal;
             sender.send(logic::Message::Sync(state.grid.dump()))?;
         }
@@ -347,6 +395,11 @@ fn handle_events_normal_mode(
             let pos = state.grid.get_cursor();
             state.mode = EditorMode::Visual(pos, pos);
         }
+        KeyCode::Char('u') => {
+            state.push_history();
+            state.load_history(0);
+            state.mode = EditorMode::History(0);
+        }
         KeyCode::Char(c @ ('h' | 'j' | 'k' | 'l')) => {
             match c {
                 'h' => state.grid.move_cursor(Direction::Left, true, false),
@@ -373,6 +426,9 @@ fn handle_events_normal_mode(
                     return Ok(false);
                 }
             };
+
+            state.push_history();
+
             let c_width = content.lines().map(|line| line.len()).max().unwrap_or(0);
             let c_height = content.lines().count();
 

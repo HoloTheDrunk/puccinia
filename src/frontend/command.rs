@@ -1,4 +1,4 @@
-use crate::{cell::CellValue, grid::span2d};
+use crate::grid::span2d;
 
 use super::prelude::*;
 
@@ -241,6 +241,8 @@ pub fn init_commands() -> Vec<Command> {
                     ))));
                 };
 
+                state.push_history();
+
                 let mut buffer = Vec::new();
 
                 // Copy area
@@ -273,6 +275,20 @@ pub fn init_commands() -> Vec<Command> {
                     Err(_) => return Err(Error::Command(CommandError::InvalidArguments(args))),
                 }
 
+                Ok(false)
+            }),
+        },
+        Command {
+            names: vec!["hdump"],
+            args: vec![],
+            description: "Dump the history to the .hist folder",
+            handler: Box::new(|_args, state, _interactions, _sender| {
+                std::fs::create_dir(".hist").expect("Failed to create .hist folder");
+                for i in 0..state.history.inner.len() {
+                    let path = format!(".hist/{}", i);
+                    std::fs::write(&path, state.history.inner[i].clone())
+                        .expect("Failed to write history file");
+                }
                 Ok(false)
             }),
         },

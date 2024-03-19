@@ -9,7 +9,6 @@ use crate::{
 };
 
 use std::{
-    io::Write,
     path::Path,
     str::FromStr,
     sync::mpsc::{Receiver, Sender},

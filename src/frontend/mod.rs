@@ -21,7 +21,7 @@ use {
 use {
     arboard::Clipboard,
     crossterm::{
-        event::{DisableMouseCapture, EnableMouseCapture, KeyCode},
+        event::{DisableMouseCapture, EnableMouseCapture},
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
@@ -64,12 +64,8 @@ pub enum CommandError {
     UnrecognizedProperty(String),
     #[error("Invalid arguments: {0:?}")]
     InvalidArguments(Vec<String>),
-    #[error("Usage: set <property> [values...]")]
-    InvalidCommandSyntax,
     #[error("Invalid mode, expected {0} mode")]
     InvalidMode(String),
-    #[error("Invalid command or number of paremeters: {0} {1:?}")]
-    Unknown(String, Vec<String>),
 }
 
 type AnyResult<T> = anyhow::Result<T, Error>;
@@ -91,6 +87,7 @@ fn wrapper<B: Backend>(
 ) -> AnyResult<()> {
     let mut state = State {
         grid: Grid::new(10, 10),
+        history: GridHistory::new(256),
         config: Config {
             run_area_width: 32,
             run_area_position: RunAreaPosition::Left,

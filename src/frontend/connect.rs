@@ -26,6 +26,7 @@ pub fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> A
                 state.grid = Grid::from(grid);
                 state.grid.load_breakpoints(breakpoints);
                 state.stack = stack;
+                state.push_history();
             }
             Message::MoveCursor((x, y)) => {
                 state

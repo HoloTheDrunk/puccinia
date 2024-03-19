@@ -5,7 +5,7 @@ use crate::{
 
 use std::{
     collections::VecDeque,
-    ops::{Range, RangeInclusive},
+    ops::RangeInclusive,
     time::{Duration, Instant},
 };
 

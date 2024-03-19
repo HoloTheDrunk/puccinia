@@ -1,8 +1,8 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, str::Lines};
 
 use crate::grid::Grid;
 
-use {arboard::Clipboard, tui::style::Color};
+use {arboard::Clipboard, itertools::Itertools, tui::style::Color};
 
 #[derive(Clone, Default, Debug)]
 pub struct Config {
@@ -50,12 +50,56 @@ pub struct State {
     pub tooltip: Option<Tooltip>,
     pub config: Config,
 
+    pub history: GridHistory,
+
     pub command_history: VecDeque<String>,
     pub command_history_index: Option<usize>,
 
     pub clipboard: Clipboard,
 
     pub debug: Option<String>,
+}
+
+impl State {
+    pub fn push_history(&mut self) {
+        let mut cgrid = self.grid.clone();
+        cgrid.trim();
+
+        let dump = cgrid.dump();
+
+        // Avoid pushing the same effective state twice
+        if dump == self.history.inner.back().cloned().unwrap_or_default() {
+            return;
+        }
+
+        if self.history.inner.len() + 1 > self.history.max_size {
+            self.history.inner.pop_front();
+        }
+
+        self.history.inner.push_back(dump);
+    }
+
+    pub fn load_history(&mut self, index: usize) -> bool {
+        self.history
+            .inner
+            .get((self.history.inner.len() - index).saturating_sub(1))
+            .map(|string| self.grid.load_values(string.clone()))
+            .is_some()
+    }
+}
+
+pub struct GridHistory {
+    pub inner: VecDeque<String>,
+    pub max_size: usize,
+}
+
+impl GridHistory {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            inner: VecDeque::with_capacity(max_size),
+            max_size,
+        }
+    }
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
@@ -73,6 +117,8 @@ pub enum EditorMode {
     Running,
     /// Interactive input mode (& and ~)
     Input(InputMode, String),
+    /// Grid history browsing mode
+    History(usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -89,6 +135,7 @@ impl From<&EditorMode> for Color {
             EditorMode::Visual(_, _) => Color::Cyan,
             EditorMode::Insert => Color::Yellow,
             EditorMode::Running => Color::Red,
+            EditorMode::History(_) => Color::LightMagenta,
         }
     }
 }

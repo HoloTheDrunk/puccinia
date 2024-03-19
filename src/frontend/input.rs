@@ -7,7 +7,10 @@ use crate::{
 
 use super::prelude::*;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::{
+    event::{Event, KeyCode, KeyEvent, KeyModifiers},
+    style::Stylize,
+};
 
 pub fn handle_events(
     state: &mut State,
@@ -35,7 +38,7 @@ pub fn handle_events(
                         'l' => state.grid.pan(Direction::Right),
                         _ => unreachable!(),
                     },
-                    _ => match state.mode {
+                    _ => match &state.mode {
                         EditorMode::Normal => {
                             return handle_events_normal_mode(
                                 (code, shift, ctrl),
@@ -65,7 +68,7 @@ pub fn handle_events(
                         EditorMode::Input(mode, ref string) => {
                             handle_events_input_mode(
                                 (code, shift, ctrl),
-                                mode,
+                                mode.clone(),
                                 string.clone(),
                                 state,
                                 sender,
@@ -90,11 +93,31 @@ pub fn handle_events_input_mode(
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
     match code {
-        KeyCode::Char(c) if input_mode == InputMode::ASCII => {
+        // Niceties
+        KeyCode::Backspace | KeyCode::Char('w') if ctrl => {
+            string = string
+                .rfind(char::is_whitespace)
+                .map(|i| string[..i].to_owned())
+                .unwrap_or(string);
+            state.mode = EditorMode::Input(input_mode, string);
+        }
+        KeyCode::Backspace => {
+            string.pop();
+            state.mode = EditorMode::Input(input_mode, string);
+        }
+        // Input and validation
+        KeyCode::Char(c)
+            if input_mode == InputMode::Integer
+                && (c.is_digit(10) || (c == '-' && string.len() == 0)) =>
+        {
             string.push(c);
             state.mode = EditorMode::Input(input_mode, string);
         }
-        // TODO: Finish input handling
+        KeyCode::Char(c) if input_mode == InputMode::ASCII && c.is_ascii() && string.len() == 0 => {
+            string.push(c);
+            state.mode = EditorMode::Input(input_mode, string);
+        }
+        // Submission
         KeyCode::Enter if string.len() > 0 => {
             let value = match input_mode {
                 InputMode::Integer => string
@@ -102,12 +125,9 @@ pub fn handle_events_input_mode(
                     .map_err(|_| Error::Input(input_mode, string))?,
                 InputMode::ASCII => string.as_bytes()[0] as i32,
             };
+
             sender.send(logic::Message::Input(value))?;
-            state.tooltip = None;
-        }
-        KeyCode::Backspace => {
-            string.pop();
-            state.mode = EditorMode::Input(input_mode, string);
+            state.mode = EditorMode::Running;
         }
         _ => (),
     }

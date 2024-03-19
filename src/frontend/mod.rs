@@ -302,6 +302,13 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
         state,
     );
 
+    match &state.mode {
+        EditorMode::Command(cmd) => state.tooltip = Some(Tooltip::Command(cmd.clone())),
+        EditorMode::Input(mode, input) => {
+            state.tooltip = Some(Tooltip::Input(mode.clone(), input.clone()))
+        }
+        _ => (),
+    }
     if let EditorMode::Command(ref cmd) = state.mode {
         state.tooltip = Some(Tooltip::Command(cmd.clone()));
     }
@@ -312,9 +319,18 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
 fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
     if let Some(tooltip) = state.tooltip.clone() {
         let (title, content, style) = match tooltip {
-            Tooltip::Command(cmd) => ("Command", cmd, Style::default().fg(Color::Yellow)),
-            Tooltip::Info(info) => ("Info", info, Style::default().fg(Color::Green)),
-            Tooltip::Error(err) => ("Error", err, Style::default().fg(Color::Red)),
+            Tooltip::Input(mode, input) => (
+                format!("Input ({:?})", mode),
+                input,
+                Style::default().fg(Color::Magenta),
+            ),
+            Tooltip::Command(cmd) => (
+                "Command".to_owned(),
+                cmd,
+                Style::default().fg(Color::Yellow),
+            ),
+            Tooltip::Info(info) => ("Info".to_owned(), info, Style::default().fg(Color::Green)),
+            Tooltip::Error(err) => ("Error".to_owned(), err, Style::default().fg(Color::Red)),
         };
 
         let lines = content

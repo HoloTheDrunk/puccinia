@@ -3,10 +3,7 @@ use crate::{
         BinaryOperator, CellValue, Direction, IfDir, NullaryOperator, Operator, TernaryOperator,
         UnaryOperator,
     },
-    frontend::{
-        self,
-        prelude::{InputMode, Message as FMessage},
-    },
+    frontend::prelude::{InputMode, Message as FMessage},
     grid::Grid,
     Args,
 };
@@ -291,7 +288,7 @@ fn step(
                         sender.send(FMessage::Output(popped.to_string()))?;
                     }
                     UnaryOperator::WriteASCII => sender.send(FMessage::Output(
-                        String::from_utf8([popped as u8].to_vec())?,
+                        String::from_utf8([popped.rem_euclid(u8::MAX as i32 + 1) as u8].to_vec())?,
                     ))?,
                 }
             }

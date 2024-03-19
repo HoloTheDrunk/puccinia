@@ -75,7 +75,7 @@ pub enum EditorMode {
     Input(InputMode, String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InputMode {
     Integer,
     ASCII,
@@ -96,6 +96,7 @@ impl From<&EditorMode> for Color {
 #[derive(Clone, Debug)]
 #[allow(unused)]
 pub enum Tooltip {
+    Input(InputMode, String),
     Command(String),
     Info(String),
     Error(String),

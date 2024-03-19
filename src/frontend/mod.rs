@@ -66,6 +66,8 @@ pub enum CommandError {
     InvalidArguments(Vec<String>),
     #[error("Usage: set <property> [values...]")]
     InvalidCommandSyntax,
+    #[error("Invalid mode, expected {0} mode")]
+    InvalidMode(String),
     #[error("Invalid command or number of paremeters: {0} {1:?}")]
     Unknown(String, Vec<String>),
 }

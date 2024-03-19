@@ -5,6 +5,7 @@ use crate::{
 
 use std::{
     collections::VecDeque,
+    ops::{Range, RangeInclusive},
     time::{Duration, Instant},
 };
 
@@ -232,13 +233,7 @@ impl Grid {
     pub fn load_values(&mut self, grid: String) {
         self.clear_values();
 
-        if grid.is_empty() {
-            self.append_line(Some(" "));
-        } else {
-            grid.lines().for_each(|line| self.append_line(Some(line)));
-            // self.width = grid.lines().map(|line| line.len()).max().unwrap();
-            // self.height = grid.lines().count();
-        }
+        grid.lines().for_each(|line| self.append_line(Some(line)));
 
         self.trim();
     }
@@ -354,8 +349,7 @@ impl Grid {
         self.width -= (lead_col + trail_col).min(self.width);
 
         if self.width == 0 {
-            self.inner
-                .push_front(vec![CellValue::Empty.into(); 1].into());
+            self.append_line(Some(" "));
         }
 
         [lead_row, trail_row, lead_col, trail_col]
@@ -480,14 +474,36 @@ impl Grid {
         }
     }
 
-    /// Loops over an area, running the provided function.
-    pub fn loop_over<F>(&mut self, (start, end): ((usize, usize), (usize, usize)), mut func: F)
-    where
+    /// Loops over an area, running the provided functions.
+    /// The inner loop (cross axis) is vertical.
+    pub fn loop_over_hv<F>(
+        &mut self,
+        (start, end): ((usize, usize), (usize, usize)),
+        mut per_cell: F,
+    ) where
         F: FnMut(usize, usize, &mut Cell),
     {
-        for x in (start.0.min(end.0))..=(end.0.max(start.0)) {
-            for y in (start.1.min(end.1))..=(end.1.max(start.1)) {
-                func(x, y, self.inner.get_mut(y).unwrap().get_mut(x).unwrap());
+        let span = span2d(start, end);
+        for x in span.0 {
+            for y in span.1.clone() {
+                per_cell(x, y, self.inner.get_mut(y).unwrap().get_mut(x).unwrap());
+            }
+        }
+    }
+
+    /// Loops over an area, running the provided functions.
+    /// The inner loop (cross axis) is horizontal.
+    pub fn loop_over_vh<F>(
+        &mut self,
+        (start, end): ((usize, usize), (usize, usize)),
+        mut per_cell: F,
+    ) where
+        F: FnMut(usize, usize, &mut Cell),
+    {
+        let span = span2d(start, end);
+        for y in span.1 {
+            for x in span.0.clone() {
+                per_cell(x, y, self.inner.get_mut(y).unwrap().get_mut(x).unwrap());
             }
         }
     }
@@ -614,4 +630,14 @@ impl Grid {
     pub fn check_bounds(&self, (x, y): (usize, usize)) -> bool {
         x < self.width && y < self.height
     }
+}
+
+pub fn span2d(
+    start: (usize, usize),
+    end: (usize, usize),
+) -> (RangeInclusive<usize>, RangeInclusive<usize>) {
+    (
+        (start.0.min(end.0))..=(end.0.max(start.0)),
+        (start.1.min(end.1))..=(end.1.max(start.1)),
+    )
 }

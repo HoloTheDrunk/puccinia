@@ -7,10 +7,7 @@ use crate::{
 
 use super::prelude::*;
 
-use crossterm::{
-    event::{Event, KeyCode, KeyEvent, KeyModifiers},
-    style::Stylize,
-};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 pub fn handle_events(
     state: &mut State,
@@ -26,7 +23,10 @@ pub fn handle_events(
                 let ctrl = !(modifiers & KeyModifiers::CONTROL).is_empty();
 
                 match (code, state.mode.clone()) {
-                    (KeyCode::Char(':'), EditorMode::Normal | EditorMode::Running) => {
+                    (
+                        KeyCode::Char(':'),
+                        EditorMode::Normal | EditorMode::Visual(_, _) | EditorMode::Running,
+                    ) => {
                         state.previous_mode = Some(state.mode.clone());
                         state.mode = EditorMode::Command(String::new());
                     }
@@ -183,7 +183,7 @@ pub fn handle_events_visual_mode(
 
             state
                 .grid
-                .loop_over((start, end), |_x, _y, cell| cell.value = CellValue::Empty);
+                .loop_over_hv((start, end), |_x, _y, cell| cell.value = CellValue::Empty);
 
             state.mode = EditorMode::Normal;
         }
@@ -254,12 +254,7 @@ pub fn handle_events_command_mode(
     sender: &Sender<logic::Message>,
 ) -> AnyResult<bool> {
     let exit_command_mode = |state: &mut State| {
-        if let Some(mode) = state.previous_mode.as_ref() {
-            state.mode = mode.clone();
-            state.previous_mode = None;
-        } else {
-            state.mode = EditorMode::Normal;
-        }
+        state.mode = state.previous_mode.clone().unwrap_or(EditorMode::Normal);
     };
 
     match code {
@@ -310,13 +305,16 @@ pub fn handle_events_command_mode(
                 state.command_history.push_front(cmd.clone());
             }
             state.command_history_index = None;
-            match handle_command(cmd.as_ref(), state, interactions, sender) {
+            let command_result = handle_command(cmd.as_ref(), state, interactions, sender);
+            state.previous_mode = None;
+            match command_result {
                 Ok(exit) => return Ok(exit),
                 Err(err) => state.tooltip = Some(Tooltip::Error(err.to_string())),
             }
         }
         KeyCode::Esc => {
             exit_command_mode(state);
+            state.previous_mode = None;
             state.tooltip = None;
         }
         KeyCode::Backspace => {

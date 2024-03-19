@@ -1,3 +1,5 @@
+use crate::{cell::CellValue, grid::span2d};
+
 use super::prelude::*;
 
 pub struct Interactions {
@@ -69,7 +71,26 @@ pub enum ArgType {
     String,
     Number,
     Boolean,
+    Axis,
     Any,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Axis {
+    X,
+    Y,
+}
+
+impl TryFrom<char> for Axis {
+    type Error = ();
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        match value {
+            'x' | 'X' => Ok(Axis::X),
+            'y' | 'Y' => Ok(Axis::Y),
+            _ => Err(()),
+        }
+    }
 }
 
 impl From<&str> for ArgType {
@@ -78,8 +99,22 @@ impl From<&str> for ArgType {
             ArgType::Number
         } else if value.parse::<bool>().is_ok() {
             ArgType::Boolean
+        } else if value == "x" || value == "y" {
+            ArgType::Axis
         } else {
             ArgType::String
+        }
+    }
+}
+
+impl ArgType {
+    pub fn is_compatible(&self, other: Self) -> bool {
+        match self {
+            ArgType::String => true,
+            ArgType::Number => matches!(other, ArgType::Number),
+            ArgType::Boolean => matches!(other, ArgType::Boolean),
+            ArgType::Axis => matches!(other, ArgType::Axis),
+            ArgType::Any => true,
         }
     }
 }
@@ -191,6 +226,56 @@ pub fn init_commands() -> Vec<Command> {
                 Ok(false)
             }),
         },
+        Command {
+            names: vec!["rev"],
+            args: vec![Arg {
+                name: "axis",
+                optional: true,
+                arg_type: ArgType::Axis,
+            }],
+            description: "Reverse selection (horizontally by default)",
+            handler: Box::new(|args, state, _interactions, _sender| {
+                let Some(EditorMode::Visual(start, end)) = state.previous_mode else {
+                    return Err(Error::Command(CommandError::InvalidMode(String::from(
+                        "Visual",
+                    ))));
+                };
+
+                let mut buffer = Vec::new();
+
+                // Copy area
+                let span = span2d(start, end);
+                for y in span.1.clone() {
+                    buffer.push(Vec::new());
+                    for x in span.0.clone() {
+                        buffer[y].push(state.grid.get(x, y).value);
+                    }
+                }
+
+                let axis = args
+                    .get(0)
+                    .map(|s| s.chars().next())
+                    .flatten()
+                    .unwrap_or('x');
+
+                match Axis::try_from(axis) {
+                    Ok(Axis::X) => {
+                        state.grid.loop_over_hv((start, end), |_, y, cell| {
+                            cell.value = buffer[y].pop().unwrap();
+                        });
+                    }
+                    Ok(Axis::Y) => {
+                        state.grid.loop_over_hv((start, end), |x, y, cell| {
+                            cell.value =
+                                buffer[(start.1 as isize - end.1 as isize).abs() as usize - y][x];
+                        });
+                    }
+                    Err(_) => return Err(Error::Command(CommandError::InvalidArguments(args))),
+                }
+
+                Ok(false)
+            }),
+        },
     ]
 }
 
@@ -218,6 +303,17 @@ pub fn handle_command(
 
     for command in commands.iter() {
         if command.names.contains(&name) {
+            // TODO: Command arg validation
+            // for arg in command.args {
+            //     if !arg.arg_type.is_compatible(ArgType::from(arg)) {
+            //         state.tooltip = Some(Tooltip::Error(format!(
+            //             "Invalid argument type for `{}`: expected {:?}, got {:?}",
+            //             arg.name,
+            //             arg.arg_type,
+            //             ArgType::from(arg)
+            //         )));
+            //     }
+            // }
             return (command.handler)(args, state, interactions, sender);
         }
     }

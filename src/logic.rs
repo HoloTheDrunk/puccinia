@@ -222,6 +222,8 @@ pub(crate) fn run(
     Ok(())
 }
 
+// TODO: Add a lightweight version of this based on sending only change events
+// This is the biggest bottleneck for the interpreter right now
 fn update_frontend(sender: &Sender<FMessage>, state: &State) -> AnyResult<()> {
     sender.send(FMessage::Load((
         state.grid.clone(),

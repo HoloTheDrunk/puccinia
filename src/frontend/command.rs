@@ -292,6 +292,15 @@ pub fn init_commands() -> Vec<Command> {
                 Ok(false)
             }),
         },
+        Command {
+            names: vec!["clear_heat"],
+            args: vec![],
+            description: "Clear the grid's heat",
+            handler: Box::new(|_args, state, _interactions, _sender| {
+                state.grid.clear_heat();
+                Ok(false)
+            }),
+        },
     ]
 }
 
@@ -302,6 +311,7 @@ pub fn handle_command(
     sender: &Sender<logic::Message>,
 ) -> AnyResult<bool> {
     let (name, args) = cmd.split_once(' ').unwrap_or((cmd, ""));
+    let name = name.to_lowercase();
     let commands = &interactions.commands;
 
     if name == "h" || name == "help" {
@@ -318,7 +328,7 @@ pub fn handle_command(
         .collect::<Vec<String>>();
 
     for command in commands.iter() {
-        if command.names.contains(&name) {
+        if command.names.contains(&name.as_ref()) {
             // TODO: Command arg validation
             // for arg in command.args {
             //     if !arg.arg_type.is_compatible(ArgType::from(arg)) {
@@ -339,6 +349,7 @@ pub fn handle_command(
     Ok(false)
 }
 
+// TODO: Read property values from a file à-la .vimrc
 pub fn init_properties() -> Vec<Property> {
     vec![
         Property {

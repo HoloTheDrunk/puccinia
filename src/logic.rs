@@ -97,13 +97,13 @@ pub(crate) fn run(
     sender: Sender<FMessage>,
     receiver: Receiver<Message>,
 ) -> AnyResult<()> {
-    let path = args.input.as_str();
+    let mut path = args.input;
 
     let mut state = State {
-        grid: if Path::new(path).is_file() {
+        grid: if Path::new(path.as_str()).is_file() {
             Grid::from(
-                std::fs::read_to_string(path)
-                    .map_err(|_| Error::FileError(FileError::FileNotFound(path.to_owned())))?,
+                std::fs::read_to_string(path.as_str())
+                    .map_err(|_| Error::FileError(FileError::FileNotFound(path.clone())))?,
             )
         } else {
             Grid::default()
@@ -120,12 +120,15 @@ pub(crate) fn run(
                 break;
             }
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
-            Message::Write(Some(path)) => {
+            Message::Write(Some(new_path)) => {
                 let mut to_save = state.grid.clone();
                 to_save.trim();
-                std::fs::write(path, to_save.dump())?;
+                match std::fs::write(new_path.as_str(), to_save.dump()) {
+                    Ok(_) => path = new_path,
+                    err @ Err(_) => err?,
+                }
             }
-            Message::Write(None) => std::fs::write(path, state.grid.dump())?,
+            Message::Write(None) => std::fs::write(path.as_str(), state.grid.dump())?,
             Message::Sync(grid) => {
                 state.grid = Grid::from(grid);
             }

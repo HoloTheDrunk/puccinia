@@ -3,7 +3,7 @@ use crate::{
         BinaryOperator, CellValue, Direction, IfDir, NullaryOperator, Operator, TernaryOperator,
         UnaryOperator,
     },
-    frontend::prelude::{InputMode, Message as FMessage},
+    frontend::prelude::{InputMode, Message as FMessage, Tooltip},
     grid::Grid,
     Args,
 };
@@ -127,8 +127,12 @@ pub(crate) fn run(
                     Ok(_) => path = new_path,
                     err @ Err(_) => err?,
                 }
+                sender.send(FMessage::PopupToggle(Tooltip::Info(format!("Wrote grid to {path}"))))?;
             }
-            Message::Write(None) => std::fs::write(path.as_str(), state.grid.dump())?,
+            Message::Write(None) => {
+                std::fs::write(path.as_str(), state.grid.dump())?;
+                sender.send(FMessage::PopupToggle(Tooltip::Info(format!("Wrote grid to {path}"))))?;
+            }
             Message::Sync(grid) => {
                 state.grid = Grid::from(grid);
             }

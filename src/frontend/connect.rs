@@ -38,7 +38,7 @@ pub fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> A
             Message::LogicError(msg) => {
                 state.tooltip = Some(Tooltip::Error(msg));
             }
-            Message::PopupToggle(_) => todo!(),
+            Message::PopupToggle(tooltip) => state.tooltip = Some(tooltip),
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
             Message::LeaveRunningMode => {
                 state.mode = EditorMode::Normal;

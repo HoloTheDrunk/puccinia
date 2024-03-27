@@ -274,13 +274,18 @@ fn step(
                         sender.send(FMessage::Input(InputMode::ASCII))?;
                     }
 
-                    let Message::Input(value) = receiver.recv()? else {
-                        sender.send(FMessage::LogicError("Expected input".to_string()))?;
-                        sender.send(FMessage::LeaveRunningMode)?;
-                        return Ok(RunStatus::End);
-                    };
-
-                    state.stack.push(value);
+                    match receiver.recv()? {
+                        Message::Input(value) => state.stack.push(value),
+                        Message::RunningCommand(RunningCommand::Stop) => {
+                            sender.send(FMessage::LeaveRunningMode)?;
+                            return Ok(RunStatus::End);
+                        }
+                        _ => {
+                            sender.send(FMessage::LogicError("Expected input".to_string()))?;
+                            sender.send(FMessage::LeaveRunningMode)?;
+                            return Ok(RunStatus::End);
+                        }
+                    }
                 }
             },
             Operator::Unary(op) => {

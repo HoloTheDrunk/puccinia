@@ -136,6 +136,7 @@ pub fn handle_events_input_mode(
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
     match code {
+        KeyCode::Esc => sender.send(logic::Message::RunningCommand(logic::RunningCommand::Stop))?,
         // Niceties
         KeyCode::Backspace | KeyCode::Char('w') if ctrl => {
             string = string

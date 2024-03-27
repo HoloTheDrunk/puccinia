@@ -138,11 +138,11 @@ pub fn handle_events_input_mode(
     match code {
         KeyCode::Esc => sender.send(logic::Message::RunningCommand(logic::RunningCommand::Stop))?,
         // Niceties
-        KeyCode::Backspace | KeyCode::Char('w') if ctrl => {
+        KeyCode::Char('w') if ctrl => {
             string = string
                 .rfind(char::is_whitespace)
                 .map(|i| string[..i].to_owned())
-                .unwrap_or(string);
+                .unwrap_or("".to_owned());
             state.mode = EditorMode::Input(input_mode, string);
         }
         KeyCode::Backspace => {

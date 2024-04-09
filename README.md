@@ -19,6 +19,7 @@ In order of how willing I am to do them right now:
   - [ ] Persistent settings
   - [ ] Custom keybindings
   - [ ] Ship default config
+  - [ ] Timed autosave with cache dir
   - [ ] Custom commands
 - [ ] Funge-98 extensions (excluding fingerprints)
   - [ ] Stack stack

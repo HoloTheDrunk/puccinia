@@ -1,3 +1,5 @@
+![Puccinia logo](./assets/title-card.svg)
+
 # Puccinia
 
 A TUI Befunge IDE.

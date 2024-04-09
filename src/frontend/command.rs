@@ -413,7 +413,7 @@ pub fn init_properties() -> Vec<Property> {
                 optional: false,
                 arg_type: ArgType::String,
             }],
-            description: "View update mode (None, Partial, False)",
+            description: "View update mode (None, Partial, All)",
             setter: Box::new(|args, _state, sender| {
                 if ArgType::from(args[0].as_ref()) != ArgType::String {
                     return Err(Error::Command(CommandError::InvalidArguments(

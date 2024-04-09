@@ -17,8 +17,7 @@ mod test {
 
     #[test]
     fn parse_set() {
-        CParser::parse(Rule::config, r#"set foo "bar";"#).unwrap();
-        CParser::parse(Rule::config, r#"set foo "";"#).unwrap();
+        CParser::parse(Rule::config, "set foo bar;").unwrap();
     }
 
     #[test]
@@ -27,18 +26,19 @@ mod test {
     }
 
     #[test]
-    fn parse_toggle() {
-        CParser::parse(Rule::config, "toggle foo;").unwrap();
-    }
-
-    #[test]
     fn parse_bind() {
-        CParser::parse(Rule::config, r#"bind foo "Escape";"#).unwrap();
-        CParser::parse(Rule::config, r#"bind foo "<C-b>";"#).unwrap();
+        CParser::parse(Rule::config, "bind foo <Escape>;").unwrap();
+        CParser::parse(Rule::config, "bind foo ^b;").unwrap();
     }
 
     #[test]
     fn parse_unbind() {
         CParser::parse(Rule::config, "unbind foo;").unwrap();
+    }
+
+    #[test]
+    fn parse_default() {
+        let default_config = std::fs::read_to_string("assets/.puccirc").unwrap();
+        CParser::parse(Rule::config, &default_config).unwrap();
     }
 }

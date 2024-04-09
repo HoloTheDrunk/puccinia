@@ -1,3 +1,4 @@
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
 WHITESPACE = _{ " " | "\t" | NEWLINE }
 
 ALPHA_SNAKE = _{ (ASCII_ALPHA | "_") }
@@ -5,20 +6,18 @@ ALNUM_SNAKE = _{ (ASCII_ALPHANUMERIC | "_") }
 
 config = { SOI ~ statement* ~ EOI }
 statement = { 
-  (set | unset | toggle | bind | unbind) ~ ";"
+  (set | unset | bind | unbind) ~ ";"
 }
 
-set = { "set" ~ identifier ~ "\"" ~ value ~ "\"" }
+set = { "set" ~ identifier ~ value }
 unset = { "unset" ~ identifier }
-toggle = { "toggle" ~ identifier }
-bind = { "bind" ~ identifier ~ "\"" ~ keyEvent ~ "\"" }
+bind = { "bind" ~ identifier ~ keyEvent }
 unbind = { "unbind" ~ identifier }
 
-identifier = { ALPHA_SNAKE ~ ALNUM_SNAKE* }
-value = { ALNUM_SNAKE* }
-keyEvent = {
-  ("<" ~ modifier ~ "-" ~ key ~ ">")
-  | key
+identifier = @{ ALPHA_SNAKE ~ ALNUM_SNAKE* }
+value = @{ ALNUM_SNAKE+ }
+keyEvent = @{
+  "^"? ~ (("<" ~ special_key ~ ">") | key)
 }
-modifier = { "C" | "S" }
-key = { ALNUM_SNAKE* }
+key = { ASCII_ALPHA }
+special_key = @{ ALNUM_SNAKE+ }

@@ -1,8 +1,8 @@
-![Puccinia logo](./assets/title-card.svg)
+<p align="center">
+  <img src="./assets/title-card.svg" alt="Puccinia logo"><br><br>
+  A TUI Befunge IDE.
+</p>
 
-# Puccinia
-
-A TUI Befunge IDE.
 
 ## Features
 

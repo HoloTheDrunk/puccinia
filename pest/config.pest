@@ -4,15 +4,13 @@ WHITESPACE = _{ " " | "\t" | NEWLINE }
 ALPHA_SNAKE = _{ (ASCII_ALPHA | "_") }
 ALNUM_SNAKE = _{ (ASCII_ALPHANUMERIC | "_") }
 
-config = { SOI ~ statement* ~ EOI }
-statement = { 
-  (set | unset | bind | unbind) ~ ";"
+config = _{ SOI ~ statement* ~ EOI }
+statement = _{ 
+  (set | bind) ~ ";"
 }
 
 set = { "set" ~ identifier ~ value }
-unset = { "unset" ~ identifier }
 bind = { "bind" ~ identifier ~ keyEvent }
-unbind = { "unbind" ~ identifier }
 
 identifier = @{ ALPHA_SNAKE ~ ALNUM_SNAKE* }
 value = @{ ALNUM_SNAKE+ }

@@ -1,0 +1,24 @@
+WHITESPACE = _{ " " | "\t" | NEWLINE }
+
+ALPHA_SNAKE = _{ (ASCII_ALPHA | "_") }
+ALNUM_SNAKE = _{ (ASCII_ALPHANUMERIC | "_") }
+
+config = { SOI ~ statement* ~ EOI }
+statement = { 
+  (set | unset | toggle | bind | unbind) ~ ";"
+}
+
+set = { "set" ~ identifier ~ "\"" ~ value ~ "\"" }
+unset = { "unset" ~ identifier }
+toggle = { "toggle" ~ identifier }
+bind = { "bind" ~ identifier ~ "\"" ~ keyEvent ~ "\"" }
+unbind = { "unbind" ~ identifier }
+
+identifier = { ALPHA_SNAKE ~ ALNUM_SNAKE* }
+value = { ALNUM_SNAKE* }
+keyEvent = {
+  ("<" ~ modifier ~ "-" ~ key ~ ">")
+  | key
+}
+modifier = { "C" | "S" }
+key = { ALNUM_SNAKE* }

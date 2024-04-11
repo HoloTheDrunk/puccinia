@@ -138,6 +138,9 @@ impl Default for Keybindings {
 impl Keybindings {
     pub fn load(raw: &crate::config::ConfigFile) -> anyhow::Result<Self> {
         let mut keybindings = Keybindings::default();
+
+        let mut invalid = Vec::new();
+
         for (bind, provided_key) in raw.binds.iter() {
             if let Some((_name, current_key)) = keybindings
                 .iter_mut()
@@ -145,9 +148,16 @@ impl Keybindings {
             {
                 *current_key.downcast_mut::<KeyEvent>().unwrap() =
                     parse_key_event(provided_key.as_str())?;
+            } else {
+                invalid.push(bind.to_string());
             }
         }
-        Ok(keybindings)
+
+        if invalid.is_empty() {
+            Ok(keybindings)
+        } else {
+            Err(InputError::UnknownBinds(invalid).into())
+        }
     }
 
     pub fn movement(&self) -> [&KeyEvent; 4] {
@@ -177,6 +187,8 @@ impl Keybindings {
 pub enum InputError {
     #[error("Unknown bind: `{0}`")]
     UnknownBind(String),
+    #[error("Unknown binds: {0:?}")]
+    UnknownBinds(Vec<String>),
 }
 
 fn parse_key_event(key_event: &str) -> anyhow::Result<KeyEvent> {

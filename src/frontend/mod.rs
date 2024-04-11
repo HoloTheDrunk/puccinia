@@ -65,7 +65,7 @@ pub enum Error {
 
 #[derive(thiserror::Error, Debug)]
 pub enum CommandError {
-    #[error("Unrecognized property: {0}")]
+    #[error("Unrecognized property: `{0}`")]
     UnrecognizedProperty(String),
     #[error("Invalid arguments: {0:?}")]
     InvalidArguments(Vec<String>),
@@ -104,13 +104,10 @@ fn wrapper<B: Backend>(
         (path, Err(_)) => (path, None),
     };
 
-    let bindings = config_file
-        .as_ref()
-        .map(Keybindings::load)
-        .transpose()
-        .ok()
-        .flatten()
-        .unwrap_or_default();
+    let (bindings, binding_error) = match config_file.as_ref().map(Keybindings::load).transpose() {
+        Ok(opt) => (opt, None),
+        Err(err) => (None, Some(err)),
+    };
 
     let mut state = State {
         grid: Grid::new(10, 10),
@@ -126,7 +123,7 @@ fn wrapper<B: Backend>(
 
             live_output: true,
 
-            bindings,
+            bindings: bindings.unwrap_or_default(),
 
             cache_directory: ".cache".to_owned(),
             cache_directory_size: 2,
@@ -150,27 +147,49 @@ fn wrapper<B: Backend>(
         properties: init_properties(),
     };
 
-    match config_file {
-        Some(content) => {
-            content.sets.iter().for_each(|(name, args)| {
-                let args = std::iter::once(name.to_owned())
-                    .chain(args.split_whitespace().map(str::to_owned))
+    if let Some(err) = binding_error {
+        state.tooltip = Some(Tooltip::Error(format!(
+            "Failed to load keybindings: {}",
+            err
+        )));
+    } else {
+        match config_file {
+            // Apply properties from the config file
+            Some(content) => {
+                let errors = content
+                    .sets
+                    .iter()
+                    .flat_map(|(name, args)| {
+                        let args = std::iter::once(name.to_owned())
+                            .chain(args.split_whitespace().map(str::to_owned))
+                            .collect::<Vec<String>>();
+
+                        if let Err(e) = handle_set_command(
+                            args.as_slice(),
+                            &mut state,
+                            &interactions,
+                            sender,
+                            true,
+                        ) {
+                            Some(format!("Failed to apply config: {}", e))
+                        } else {
+                            None
+                        }
+                    })
                     .collect::<Vec<String>>();
 
-                if let Err(e) =
-                    handle_set_command(args.as_slice(), &mut state, &interactions, sender, true)
-                {
-                    state.tooltip = Some(Tooltip::Error(format!("Failed to apply config: {}", e)));
+                if errors.len() > 0 {
+                    state.tooltip = Some(Tooltip::Error(errors.join("\n")));
+                } else {
+                    state.tooltip = Some(Tooltip::Info(format!(
+                        "Loaded config from {path} in {}ms",
+                        (std::time::Instant::now() - load_start).as_millis()
+                    )))
                 }
-            });
-
-            state.tooltip = Some(Tooltip::Info(format!(
-                "Loaded config from {path} in {}ms",
-                (std::time::Instant::now() - load_start).as_millis()
-            )))
-        }
-        None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
-    };
+            }
+            None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
+        };
+    }
 
     main_loop(terminal, &mut state, interactions, &receiver, &sender)?;
 

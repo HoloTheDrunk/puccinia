@@ -472,6 +472,21 @@ pub fn init_properties() -> Vec<Property> {
                 Ok(())
             }),
         },
+        Property {
+            name: "autosave_interval",
+            args: vec![Arg {
+                name: "interval",
+                optional: false,
+                arg_type: ArgType::Number,
+            }],
+            description: "Autosave interval in seconds",
+            setter: Box::new(|args, state, _sender| {
+                state.config.autosave_interval = args[0]
+                    .parse()
+                    .map_err(|_| Error::Command(CommandError::InvalidArguments(args.to_vec())))?;
+                Ok(())
+            }),
+        },
     ]
 }
 

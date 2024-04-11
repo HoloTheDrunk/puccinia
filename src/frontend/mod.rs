@@ -328,6 +328,22 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
         grid_area,
     );
 
+    f.render_widget(
+        Paragraph::new(match state.grid.get_cursor_dir() {
+            Direction::Up => "^",
+            Direction::Down => "v",
+            Direction::Left => "<",
+            Direction::Right => ">",
+            Direction::Random => unreachable!(),
+        }),
+        Rect::new(
+            grid_area.left() + "Editor".len() as u16 + 2,
+            grid_area.top(),
+            1,
+            1,
+        ),
+    );
+
     f.render_stateful_widget(
         state.grid.clone(),
         grid_area.inner(&Margin {

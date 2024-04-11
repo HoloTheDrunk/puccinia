@@ -20,7 +20,7 @@ In order of how willing I am to do them right now:
 - [x] Config file
   - [x] Custom keybindings
   - [x] Ship default config
-  - [ ] Timed autosave with cache dir
+  - [x] Timed autosave with cache dir
   - [ ] Custom commands
 - [ ] Funge-98 extensions (excluding fingerprints)
   - [ ] Stack stack

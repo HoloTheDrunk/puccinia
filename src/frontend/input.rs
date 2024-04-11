@@ -1,11 +1,6 @@
-use std::{sync::mpsc::Sender, time::Duration};
-
-use crate::{
-    cell::{CellValue, Direction},
-    logic,
-};
-
 use super::prelude::*;
+
+use crate::cell::CellValue;
 
 use {
     crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers},
@@ -227,7 +222,7 @@ macro_rules! map_binding {
         _ => $catchall:expr $(,)?
     }) => {
         'fake_match: { $(
-            if $($state.bindings.$bind == $event)||* $(&& $cond)? {
+            if $($state.config.bindings.$bind == $event)||* $(&& $cond)? {
                 break 'fake_match ($action);
             })*
             $catchall
@@ -242,24 +237,22 @@ pub fn handle_events(
 ) -> AnyResult<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
-            Ok(Event::Key(
-                event @ KeyEvent {
-                    code, modifiers, ..
-                },
-            )) => {
-                let ctrl = !(modifiers & KeyModifiers::CONTROL).is_empty();
-
+            Ok(Event::Key(event)) => {
                 match &state.mode {
                     // Shared and guards
                     EditorMode::Normal | EditorMode::Visual(_, _) | EditorMode::Running
-                        if code == state.bindings.start_command.code =>
+                        if event == state.config.bindings.start_command =>
                     {
                         state.previous_mode = Some(state.mode.clone());
                         state.mode = EditorMode::Command(String::new());
                     }
-                    EditorMode::Command(_) if state.bindings.expansion().contains(&&event) => (),
+                    EditorMode::Command(_)
+                        if state.config.bindings.expansion().contains(&&event) =>
+                    {
+                        ()
+                    }
                     EditorMode::Normal | EditorMode::Running
-                        if state.bindings.toggle_breakpoint == event =>
+                        if state.config.bindings.toggle_breakpoint == event =>
                     {
                         if state.mode == EditorMode::Normal {
                             state.grid.toggle_current_breakpoint();
@@ -269,11 +262,11 @@ pub fn handle_events(
                             ))?;
                         }
                     }
-                    _ if state.bindings.panning().contains(&&event) => {
-                        let dir = ((state.bindings.pan_left.code == event.code) as u8) << 3
-                            | ((state.bindings.pan_down.code == event.code) as u8) << 2
-                            | ((state.bindings.pan_up.code == event.code) as u8) << 1
-                            | (state.bindings.pan_right.code == event.code) as u8;
+                    _ if state.config.bindings.panning().contains(&&event) => {
+                        let dir = ((state.config.bindings.pan_left.code == event.code) as u8) << 3
+                            | ((state.config.bindings.pan_down.code == event.code) as u8) << 2
+                            | ((state.config.bindings.pan_up.code == event.code) as u8) << 1
+                            | (state.config.bindings.pan_right.code == event.code) as u8;
 
                         match dir {
                             0b1000 => state.grid.pan(Direction::Left),
@@ -674,7 +667,7 @@ fn handle_events_normal_mode(
         },
         escape => state.tooltip = None,
         // Has to be here to avoid generating labeled break return warning
-        _ => if event == state.bindings.start_running {
+        _ => if event == state.config.bindings.start_running {
             return handle_command("run", state, interactions, sender)
         },
     });

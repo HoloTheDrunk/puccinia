@@ -2,6 +2,15 @@
 
 ## Properties
 
+# Cache directory for autosaves, I recommend changing it to an absolute canonical path
+set cache_dir .cache
+
+# In megabytes, automatically removes oldest autosaves when the cache exceeds this size
+set cache_dir_size 10
+
+# In seconds
+set autosave_interval 60
+
 # Cell heat display toggle
 set heat true
 
@@ -20,6 +29,7 @@ set step_ms 0
 ## Bindings
 
 bind escape <Escape>
+
 bind cycle_layout <Tab>
 
 bind backspace <Backspace>
@@ -54,9 +64,6 @@ bind start_history u
 # Normal mode
 bind paste p
 
-# Command mode
-bind submit_command <Enter>
-
 # Visual mode
 bind yank y
 bind delete d
@@ -66,6 +73,12 @@ bind stop_run ^c
 bind step <Space>
 bind skip_to_breakpoint <Enter>
 
+# Normal and Running modes
+bind toggle_breakpoint b
+
+# Command mode
+bind submit_command <Enter>
+
 # Input mode (not insert mode, this is for input cells in running mode)
 bind submit_input <Enter>
 
@@ -73,6 +86,3 @@ bind submit_input <Enter>
 bind history_back u
 bind history_forward ^r
 bind history_accept <Enter>
-
-# Normal and Running modes
-bind toggle_breakpoint b

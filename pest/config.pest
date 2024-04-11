@@ -11,7 +11,7 @@ set = { "set" ~ identifier ~ value }
 bind = { "bind" ~ identifier ~ keyEvent }
 
 identifier = @{ ALPHA_SNAKE ~ ALNUM_SNAKE* }
-value = @{ ALNUM_SNAKE+ }
+value = @{ (!NEWLINE ~ ANY)+ }
 keyEvent = @{
   "^"? ~ (("<" ~ special_key ~ ">") | key)
 }

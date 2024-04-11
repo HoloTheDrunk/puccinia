@@ -1,9 +1,6 @@
-use std::sync::mpsc::{Receiver, TryRecvError};
+use std::sync::mpsc::TryRecvError;
 
-use {
-    super::prelude::*,
-    crate::{cell::CellValue, grid::Grid},
-};
+use {super::prelude::*, crate::cell::CellValue};
 
 #[derive(Debug)]
 #[allow(unused)]

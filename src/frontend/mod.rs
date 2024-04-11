@@ -11,6 +11,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use chrono::{Datelike as _, Timelike as _};
+
 use crate::config::ConfigFile;
 
 use {
@@ -123,8 +125,13 @@ fn wrapper<B: Backend>(
             sides: true,
 
             live_output: true,
+
+            bindings,
+
+            cache_directory: ".cache".to_owned(),
+            cache_directory_size: 2,
+            autosave_interval: 60,
         },
-        bindings,
         mode: EditorMode::Normal,
         previous_mode: None,
         stack: Vec::new(),
@@ -201,6 +208,8 @@ fn main_loop<B: Backend>(
     let target_fps = 30;
     let target_delta = Duration::from_millis(1000 / target_fps);
 
+    let mut last_autosave = Instant::now();
+
     loop {
         let start = Instant::now();
         let delta = start - last_frame;
@@ -222,9 +231,80 @@ fn main_loop<B: Backend>(
         if stop {
             break;
         }
+
+        autosave(state, &mut last_autosave);
     }
 
     Ok(())
+}
+
+fn autosave(state: &mut State, last_autosave: &mut Instant) {
+    if state.config.autosave_interval > 0
+        && (Instant::now() - *last_autosave).as_secs() > state.config.autosave_interval
+    {
+        if let Err(err) = std::fs::create_dir_all(state.config.cache_directory.as_str()) {
+            state.tooltip = Some(Tooltip::Error(format!(
+                "Failed to create cache directory: {}",
+                err
+            )));
+            state.config.autosave_interval = 0;
+            return;
+        }
+
+        let dir_iter = std::fs::read_dir(state.config.cache_directory.as_str()).unwrap();
+        let dir_size = dir_iter
+            .map(|entry| {
+                entry.map_or(0, |file| {
+                    file.metadata()
+                        .expect("couldn't access file metadata")
+                        .len()
+                })
+            })
+            .reduce(|acc, e| acc + e)
+            .unwrap_or(0);
+
+        let dir_iter = std::fs::read_dir(state.config.cache_directory.as_str()).unwrap();
+        if dir_size > state.config.cache_directory_size {
+            dir_iter
+                .sorted_by_key(|entry| {
+                    entry.as_ref().map_or(0, |file| {
+                        file.metadata()
+                            .unwrap()
+                            .created()
+                            .unwrap()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_else(|_| Duration::from_secs(0))
+                            .as_secs()
+                    })
+                })
+                .take(1)
+                .for_each(|entry| {
+                    if let Ok(entry) = entry {
+                        std::fs::remove_file(entry.path()).unwrap();
+                    }
+                })
+        }
+
+        let now = chrono::Local::now();
+        let path = Path::new(state.config.cache_directory.as_str()).join(format!(
+            "autosave_{}-{}-{}_{}-{}-{}.pucc",
+            now.year(),
+            now.month(),
+            now.day(),
+            now.hour(),
+            now.minute(),
+            now.second()
+        ));
+
+        match std::fs::write(path, state.grid.dump()) {
+            Ok(_) => *last_autosave = Instant::now(),
+            Err(err) => {
+                state.tooltip = Some(Tooltip::Error(format!(
+                    "Failed to autosave, disabling autosave routine: {err}"
+                )));
+            }
+        }
+    }
 }
 
 fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {

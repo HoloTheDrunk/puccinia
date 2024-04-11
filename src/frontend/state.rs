@@ -20,6 +20,14 @@ pub struct Config {
 
     // Running mode optimizations
     pub live_output: bool,
+
+    // Keybindings
+    pub bindings: Keybindings,
+
+    // Autosave
+    pub cache_directory: String,
+    pub cache_directory_size: u64,
+    pub autosave_interval: u64,
 }
 
 #[derive(Clone, Default, Debug, PartialEq, Eq)]
@@ -51,7 +59,6 @@ pub struct State {
 
     pub tooltip: Option<Tooltip>,
     pub config: Config,
-    pub bindings: Keybindings,
 
     pub history: GridHistory,
 

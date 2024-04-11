@@ -444,6 +444,34 @@ pub fn init_properties() -> Vec<Property> {
                 update_logic_property("step_ms", &args[0], sender)
             }),
         },
+        Property {
+            name: "cache_dir",
+            args: vec![Arg {
+                name: "path",
+                optional: false,
+                arg_type: ArgType::String,
+            }],
+            description: "Cache directory path",
+            setter: Box::new(|args, state, _sender| {
+                state.config.cache_directory = args[0].clone();
+                Ok(())
+            }),
+        },
+        Property {
+            name: "cache_dir_size",
+            args: vec![Arg {
+                name: "size",
+                optional: false,
+                arg_type: ArgType::Number,
+            }],
+            description: "Cache directory size in MB",
+            setter: Box::new(|args, state, _sender| {
+                state.config.cache_directory_size = args[0]
+                    .parse()
+                    .map_err(|_| Error::Command(CommandError::InvalidArguments(args.to_vec())))?;
+                Ok(())
+            }),
+        },
     ]
 }
 

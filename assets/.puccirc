@@ -3,71 +3,76 @@
 ## Properties
 
 # Cell heat display toggle
-set heat true;
+set heat true
 
 # Cell heat attenuation over time in the range [0; 255]
-set heat_diffusion 30;
+set heat_diffusion 30
 
 # Live program output toggle (from , and . operators)
-set live_output true;
+set live_output true
 
 # Program run display type (None, Partial or All)
-set view_updates All;
+set view_updates All
 
 # Additional sleep between steps
-set step_ms 0;
+set step_ms 0
 
 ## Bindings
 
-# Escape
-bind escape <Escape>;
+bind escape <Escape>
+bind cycle_layout <Tab>
+
+bind backspace <Backspace>
+bind delete_current <Delete>
+bind delete_word ^w
 
 # Cursor movement
-bind left h;
-bind down j;
-bind up k;
-bind right l;
+bind left h
+bind down j
+bind up k
+bind right l
 
 # Expand grid
-bind expand_left H;
-bind expand_down J;
-bind expand_up K;
-bind expand_right L;
+bind expand_left H
+bind expand_down J
+bind expand_up K
+bind expand_right L
 
 # Grid panning
-bind pan_left ^h;
-bind pan_down ^j;
-bind pan_up ^k;
-bind pan_right ^l;
+bind pan_left ^h
+bind pan_down ^j
+bind pan_up ^k
+bind pan_right ^l
 
 # Mode switch
-bind start_command <Colon>;
-bind start_insert i;
-bind start_visual v;
-bind start_running ^r;
-bind start_history u;
+bind start_command :
+bind start_insert i
+bind start_visual v
+bind start_running ^r
+bind start_history u
 
 # Normal mode
-bind paste p;
-bind normal_breakpoint b;
+bind paste p
 
 # Command mode
-bind submit_command <Enter>;
+bind submit_command <Enter>
 
 # Visual mode
-bind yank y;
-bind delete d;
+bind yank y
+bind delete d
 
 # Running mode
-bind stop_run ^c;
-bind step <Space>;
-bind run_breakpoint b;
-bind skip_to_breakpoint <Enter>;
+bind stop_run ^c
+bind step <Space>
+bind skip_to_breakpoint <Enter>
 
 # Input mode (not insert mode, this is for input cells in running mode)
-bind submit_input <Enter>;
+bind submit_input <Enter>
 
 # History mode
-bind history_back u;
-bind history_forward ^r;
-bind history_accept <Enter>;
+bind history_back u
+bind history_forward ^r
+bind history_accept <Enter>
+
+# Normal and Running modes
+bind toggle_breakpoint b

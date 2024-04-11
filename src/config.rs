@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 
 use {pest::Parser, pest_derive::Parser};
 
@@ -12,8 +12,8 @@ pub struct ConfigFile {
 }
 
 impl ConfigFile {
-    pub fn load(path: &std::path::Path) -> anyhow::Result<Self> {
-        let config = std::fs::read_to_string(path)?;
+    pub fn load(config: &str) -> anyhow::Result<Self> {
+        // let config = std::fs::read_to_string(path)?;
         let pairs = CParser::parse(Rule::config, &config)?;
 
         let mut sets = HashMap::new();
@@ -40,6 +40,21 @@ impl ConfigFile {
     }
 }
 
+impl Default for ConfigFile {
+    fn default() -> Self {
+        Self::load(include_str!("../assets/.puccirc")).unwrap()
+    }
+}
+
+impl TryFrom<&Path> for ConfigFile {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+        let config = std::fs::read_to_string(value)?;
+        Self::load(&config)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -51,13 +66,13 @@ mod test {
 
     #[test]
     fn parse_set() {
-        CParser::parse(Rule::config, "set foo bar;").unwrap();
+        CParser::parse(Rule::config, "set foo bar").unwrap();
     }
 
     #[test]
     fn parse_bind() {
-        CParser::parse(Rule::config, "bind foo <Escape>;").unwrap();
-        CParser::parse(Rule::config, "bind foo ^b;").unwrap();
+        CParser::parse(Rule::config, "bind foo <Escape>").unwrap();
+        CParser::parse(Rule::config, "bind foo ^b").unwrap();
     }
 
     #[test]
@@ -68,6 +83,6 @@ mod test {
 
     #[test]
     fn load_default() {
-        ConfigFile::load(std::path::Path::new("assets/.puccirc")).unwrap();
+        ConfigFile::try_from(Path::new("assets/.puccirc")).unwrap();
     }
 }

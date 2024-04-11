@@ -5,9 +5,7 @@ ALPHA_SNAKE = _{ (ASCII_ALPHA | "_") }
 ALNUM_SNAKE = _{ (ASCII_ALPHANUMERIC | "_") }
 
 config = _{ SOI ~ statement* ~ EOI }
-statement = _{ 
-  (set | bind) ~ ";"
-}
+statement = _{ set | bind }
 
 set = { "set" ~ identifier ~ value }
 bind = { "bind" ~ identifier ~ keyEvent }
@@ -17,5 +15,5 @@ value = @{ ALNUM_SNAKE+ }
 keyEvent = @{
   "^"? ~ (("<" ~ special_key ~ ">") | key)
 }
-key = { ASCII_ALPHA }
+key = { ASCII }
 special_key = @{ ALNUM_SNAKE+ }

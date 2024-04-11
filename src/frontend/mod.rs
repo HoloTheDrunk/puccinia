@@ -6,9 +6,12 @@ mod state;
 use std::{
     collections::VecDeque,
     io::Stdout,
+    path::Path,
     sync::mpsc::{self, Receiver, Sender},
     time::{Duration, Instant},
 };
+
+use crate::config::ConfigFile;
 
 use {
     crate::{cell::Direction, grid::Grid, logic},
@@ -85,6 +88,28 @@ fn wrapper<B: Backend>(
     receiver: Receiver<Message>,
     sender: &Sender<logic::Message>,
 ) -> AnyResult<()> {
+    let load_start = std::time::Instant::now();
+
+    let loaded_config = {
+        let path = std::env::var("PUCCINIA_CONFIG_PATH").unwrap_or(format!(
+            "{}/.puccirc",
+            std::env::var("HOME").unwrap_or(".".to_owned())
+        ));
+        (path.clone(), ConfigFile::try_from(Path::new(path.as_str())))
+    };
+    let (path, config_file) = match loaded_config {
+        (path, Ok(config)) => (path, Some(config)),
+        (path, Err(_)) => (path, None),
+    };
+
+    let bindings = config_file
+        .as_ref()
+        .map(Keybindings::load)
+        .transpose()
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+
     let mut state = State {
         grid: Grid::new(10, 10),
         history: GridHistory::new(256),
@@ -99,6 +124,7 @@ fn wrapper<B: Backend>(
 
             live_output: true,
         },
+        bindings,
         mode: EditorMode::Normal,
         previous_mode: None,
         stack: Vec::new(),
@@ -115,6 +141,16 @@ fn wrapper<B: Backend>(
     let interactions = Interactions {
         commands: init_commands(),
         properties: init_properties(),
+    };
+
+    match config_file {
+        Some(_) => {
+            state.tooltip = Some(Tooltip::Info(format!(
+                "Loaded config from {path} in {}ms",
+                (std::time::Instant::now() - load_start).as_millis()
+            )))
+        }
+        None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
     };
 
     main_loop(terminal, &mut state, interactions, &receiver, &sender)?;

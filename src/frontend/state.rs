@@ -1,8 +1,10 @@
-use std::{collections::VecDeque, str::Lines};
+use std::collections::VecDeque;
+
+use super::Keybindings;
 
 use crate::grid::Grid;
 
-use {arboard::Clipboard, itertools::Itertools, tui::style::Color};
+use {arboard::Clipboard, tui::style::Color};
 
 #[derive(Clone, Default, Debug)]
 pub struct Config {
@@ -49,6 +51,7 @@ pub struct State {
 
     pub tooltip: Option<Tooltip>,
     pub config: Config,
+    pub bindings: Keybindings,
 
     pub history: GridHistory,
 

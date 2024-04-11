@@ -247,10 +247,13 @@ pub fn init_commands() -> Vec<Command> {
 
                 // Copy area
                 let span = span2d(start, end);
+
+                state.debug = Some(format!("{start:?} {end:?} {span:?}"));
+
                 for y in span.1.clone() {
                     buffer.push(Vec::new());
                     for x in span.0.clone() {
-                        buffer[y].push(state.grid.get(x, y).value);
+                        buffer.last_mut().unwrap().push(state.grid.get(x, y).value);
                     }
                 }
 
@@ -263,13 +266,14 @@ pub fn init_commands() -> Vec<Command> {
                 match Axis::try_from(axis) {
                     Ok(Axis::X) => {
                         state.grid.loop_over_hv((start, end), |_, y, cell| {
-                            cell.value = buffer[y].pop().unwrap();
+                            cell.value = buffer[y - start.1].pop().unwrap();
                         });
                     }
                     Ok(Axis::Y) => {
                         state.grid.loop_over_hv((start, end), |x, y, cell| {
-                            cell.value =
-                                buffer[(start.1 as isize - end.1 as isize).abs() as usize - y][x];
+                            cell.value = buffer[(start.1 as isize - (end.1 as isize)).abs()
+                                as usize
+                                - (y - start.1)][x - start.0];
                         });
                     }
                     Err(_) => return Err(Error::Command(CommandError::InvalidArguments(args))),

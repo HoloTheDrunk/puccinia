@@ -151,7 +151,19 @@ fn wrapper<B: Backend>(
     };
 
     match config_file {
-        Some(_) => {
+        Some(content) => {
+            content.sets.iter().for_each(|(name, args)| {
+                let args = std::iter::once(name.to_owned())
+                    .chain(args.split_whitespace().map(str::to_owned))
+                    .collect::<Vec<String>>();
+
+                if let Err(e) =
+                    handle_set_command(args.as_slice(), &mut state, &interactions, sender, true)
+                {
+                    state.tooltip = Some(Tooltip::Error(format!("Failed to apply config: {}", e)));
+                }
+            });
+
             state.tooltip = Some(Tooltip::Info(format!(
                 "Loaded config from {path} in {}ms",
                 (std::time::Instant::now() - load_start).as_millis()

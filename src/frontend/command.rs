@@ -222,7 +222,7 @@ pub fn init_commands() -> Vec<Command> {
             ],
             description: "Set a property (use ? for a list)",
             handler: Box::new(|args, state, interactions, sender| {
-                handle_set_command(args.as_slice(), state, interactions, sender)?;
+                handle_set_command(args.as_slice(), state, interactions, sender, true)?;
                 Ok(false)
             }),
         },
@@ -488,15 +488,16 @@ fn update_logic_property(
 }
 
 pub fn handle_set_command(
-    cmd: &[String],
+    args: &[String],
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
+    show_tooltip: bool,
 ) -> AnyResult<()> {
     let properties = &interactions.properties;
 
     let qmark = String::from("?");
-    let (name, args) = cmd.split_first().unwrap_or((&qmark, &[]));
+    let (name, args) = args.split_first().unwrap_or((&qmark, &[]));
 
     if name == "?" {
         state.tooltip = Some(Tooltip::Info(
@@ -524,7 +525,10 @@ pub fn handle_set_command(
                 }
 
                 (property.setter)(args, state, sender)?;
-                state.tooltip = Some(Tooltip::Info(format!("`{}` has been set", property.name,)));
+                if show_tooltip {
+                    state.tooltip =
+                        Some(Tooltip::Info(format!("`{}` has been set", property.name,)));
+                }
                 Ok(())
             },
         )

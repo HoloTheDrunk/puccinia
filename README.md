@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="./assets/title-card.svg" alt="Puccinia logo"><br><br>
+  <img src="./assets/title-card.svg" alt="Puccinia logo">
+  <br><br>
   A TUI Befunge IDE.
 </p>
-
 
 ## Features
 
@@ -12,16 +12,16 @@
 - [x] Edit history
 - [x] Live run mode with breakpoints
 - [x] Commands and configurable settings
+- [x] Config file
+  - [x] Custom keybindings
+  - [x] Default config example
+  - [x] Autosave
 
 ## Roadmap
 
 In order of how willing I am to do them right now:
 
-- [x] Config file
-  - [x] Custom keybindings
-  - [x] Ship default config
-  - [x] Timed autosave with cache dir
-  - [ ] Custom commands
+- [ ] Custom commands (scripting language + API)
 - [ ] Funge-98 extensions (excluding fingerprints)
   - [ ] Stack stack
   - [ ] Concurrency

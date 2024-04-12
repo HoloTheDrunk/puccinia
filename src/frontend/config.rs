@@ -42,7 +42,7 @@ impl ConfigFile {
 
 impl Default for ConfigFile {
     fn default() -> Self {
-        Self::load(include_str!("../assets/.puccirc")).unwrap()
+        Self::load(include_str!("../../assets/.puccirc")).unwrap()
     }
 }
 

@@ -1,4 +1,5 @@
 mod command;
+mod config;
 mod connect;
 mod input;
 mod state;
@@ -13,11 +14,10 @@ use std::{
 
 use chrono::{Datelike as _, Timelike as _};
 
-use crate::config::ConfigFile;
-
 use {
     crate::{cell::Direction, grid::Grid, logic},
     command::*,
+    config::ConfigFile,
     connect::*,
     input::*,
     state::*,
@@ -42,7 +42,7 @@ use {
 };
 
 pub mod prelude {
-    pub use super::{command::*, connect::*, input::*, state::*, *};
+    pub use super::{command::*, connect::*, state::*, *};
 }
 
 #[derive(thiserror::Error, Debug)]

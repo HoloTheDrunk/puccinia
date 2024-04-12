@@ -136,7 +136,7 @@ impl Default for Keybindings {
 }
 
 impl Keybindings {
-    pub fn load(raw: &crate::config::ConfigFile) -> anyhow::Result<Self> {
+    pub fn load(raw: &super::ConfigFile) -> anyhow::Result<Self> {
         let mut keybindings = Keybindings::default();
 
         let mut invalid = Vec::new();

@@ -82,22 +82,22 @@ impl Default for Keybindings {
             delete_word: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
 
             // Cursor movement
-            left: KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-            down: KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-            up: KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
-            right: KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            left: KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
+            down: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+            up: KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+            right: KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
 
             // Grid expansion
-            expand_left: KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
-            expand_down: KeyEvent::new(KeyCode::Down, KeyModifiers::CONTROL),
-            expand_up: KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL),
-            expand_right: KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL),
+            expand_left: KeyEvent::new(KeyCode::Char('H'), KeyModifiers::NONE),
+            expand_down: KeyEvent::new(KeyCode::Char('J'), KeyModifiers::NONE),
+            expand_up: KeyEvent::new(KeyCode::Char('K'), KeyModifiers::NONE),
+            expand_right: KeyEvent::new(KeyCode::Char('L'), KeyModifiers::NONE),
 
             // Grid panning
-            pan_left: KeyEvent::new(KeyCode::Left, KeyModifiers::ALT),
-            pan_down: KeyEvent::new(KeyCode::Down, KeyModifiers::ALT),
-            pan_up: KeyEvent::new(KeyCode::Up, KeyModifiers::ALT),
-            pan_right: KeyEvent::new(KeyCode::Right, KeyModifiers::ALT),
+            pan_left: KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+            pan_down: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            pan_up: KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            pan_right: KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
 
             // Mode switch
             start_command: KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE),

@@ -92,16 +92,17 @@ fn wrapper<B: Backend>(
 ) -> AnyResult<()> {
     let load_start = std::time::Instant::now();
 
-    let loaded_config = {
-        let path = std::env::var("PUCCINIA_CONFIG_PATH").unwrap_or(format!(
-            "{}/.puccirc",
+    let (path, config_file) = {
+        let puccinia_config_path = std::env::var("PUCCINIA_CONFIG_PATH");
+        let path = puccinia_config_path.unwrap_or(format!(
+            "{}/config.pucci",
             std::env::var("HOME").unwrap_or(".".to_owned())
         ));
-        (path.clone(), ConfigFile::try_from(Path::new(path.as_str())))
-    };
-    let (path, config_file) = match loaded_config {
-        (path, Ok(config)) => (path, Some(config)),
-        (path, Err(_)) => (path, None),
+        let expanded_path = shellexpand::tilde(&path).to_string();
+        (
+            path.clone(),
+            ConfigFile::try_from(Path::new(expanded_path.as_str())).ok(),
+        )
     };
 
     let (bindings, binding_error) = match config_file.as_ref().map(Keybindings::load).transpose() {
@@ -318,7 +319,7 @@ fn autosave(state: &mut State, last_autosave: &mut Instant) {
 
         let now = chrono::Local::now();
         let path = Path::new(state.config.cache_directory.as_str()).join(format!(
-            "autosave_{}-{}-{}_{}-{}-{}.pucc",
+            "autosave_{}-{}-{}_{}-{}-{}.befunge",
             now.year(),
             now.month(),
             now.day(),

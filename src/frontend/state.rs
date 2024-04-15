@@ -1,12 +1,14 @@
-use std::collections::VecDeque;
+use rune::compile::Named;
 
 use super::Keybindings;
 
 use crate::grid::Grid;
 
-use {arboard::Clipboard, tui::style::Color};
+use std::collections::VecDeque;
 
-#[derive(Clone, Default, Debug)]
+use {arboard::Clipboard, rune::Any, tui::style::Color};
+
+#[derive(Clone, Default, Debug, Any)]
 pub struct Config {
     // Side area for run information
     pub run_area_width: u16,
@@ -14,11 +16,13 @@ pub struct Config {
     pub output_area_height: u16,
 
     // Editor display settings
+    #[rune(get, set)]
     pub heat: bool,
     pub lids: bool,
     pub sides: bool,
 
     // Running mode optimizations
+    #[rune(get, set)]
     pub live_output: bool,
 
     // Keybindings
@@ -48,18 +52,24 @@ impl RunAreaPosition {
     }
 }
 
+#[derive(Any)]
 pub struct State {
+    #[rune(get, set)]
     pub mode: EditorMode,
     pub previous_mode: Option<EditorMode>,
 
+    #[rune(get)]
     pub grid: Grid,
     pub stack: Vec<i32>,
     pub output: String,
     pub output_buffer: Option<String>,
 
+    #[rune(get)]
     pub tooltip: Option<Tooltip>,
+    #[rune(get)]
     pub config: Config,
 
+    #[rune(get)]
     pub history: GridHistory,
 
     pub command_history: VecDeque<String>,
@@ -98,6 +108,7 @@ impl State {
     }
 }
 
+#[derive(Clone, Debug, Any)]
 pub struct GridHistory {
     pub inner: VecDeque<String>,
     pub max_size: usize,
@@ -112,7 +123,7 @@ impl GridHistory {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Any)]
 pub enum EditorMode {
     #[default]
     /// Mode for moving around efficiently and running commands
@@ -150,7 +161,7 @@ impl From<&EditorMode> for Color {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Any)]
 #[allow(unused)]
 pub enum Tooltip {
     Input(InputMode, String),

@@ -18,6 +18,8 @@ pest = "2.7.9"
 pest_derive = "2.7.9"
 rand = "0.8.5"
 rune = "0.13.2"
+# TODO: Restrict scope of rune-modules to only the necessary features
+rune-modules = { version = "0.13.2", features = ["full"] }
 shellexpand = "3.1.0"
 strum = { version = "0.25.0", features = ["derive", "strum_macros"] }
 thiserror = "1.0.38"

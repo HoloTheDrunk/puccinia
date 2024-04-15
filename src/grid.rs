@@ -11,6 +11,7 @@ use std::{
 
 use {
     itertools::intersperse,
+    rune::Any,
     tui::{
         layout::Rect,
         style::{Color, Modifier, Style},
@@ -19,7 +20,7 @@ use {
     },
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Any)]
 pub struct Grid {
     width: usize,
     height: usize,
@@ -40,6 +41,7 @@ pub struct Grid {
 impl StatefulWidget for Grid {
     type State = FState;
 
+    // Don't touch this, it's a mess but it works.
     fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, state: &mut Self::State) {
         // let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
         let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;

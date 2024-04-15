@@ -260,7 +260,6 @@ fn step(
 
     match cell.value {
         CellValue::StringMode => state.string_mode = !state.string_mode,
-
         _ if state.string_mode => state.stack.push(char::from(cell.value) as i32),
 
         CellValue::Empty => (),
@@ -383,20 +382,22 @@ fn step(
         CellValue::End => return Ok(RunStatus::End),
     }
 
-    state.grid.reduce_heat(state.config.heat_diffusion);
+    if state.config.heat_diffusion != 0 {
+        state.grid.reduce_heat(state.config.heat_diffusion);
+    }
     state.grid.set_current_heat(128);
 
     state
         .grid
         .move_cursor(state.grid.get_cursor_dir(), false, false);
 
-    if live {
+    if live
+        || matches!(
+            (state.config.view_updates, grid_update),
+            (ViewUpdates::All, _) | (ViewUpdates::Partial, true)
+        )
+    {
         update_frontend(sender, state)?;
-    } else {
-        match (state.config.view_updates, grid_update) {
-            (ViewUpdates::All, _) | (ViewUpdates::Partial, true) => update_frontend(sender, state)?,
-            _ => (),
-        }
     }
 
     Ok(if state.grid.get_current().is_breakpoint {

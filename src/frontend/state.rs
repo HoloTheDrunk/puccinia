@@ -4,7 +4,7 @@ use super::Keybindings;
 
 use crate::grid::Grid;
 
-use std::collections::VecDeque;
+use std::{collections::VecDeque, sync::Arc};
 
 use {arboard::Clipboard, rune::Any, tui::style::Color};
 
@@ -52,6 +52,24 @@ impl RunAreaPosition {
     }
 }
 
+pub struct RuneState {
+    runtime: Arc<rune::runtime::RuntimeContext>,
+    unit: Arc<rune::Unit>,
+}
+
+impl RuneState {
+    pub fn new(runtime: rune::runtime::RuntimeContext, unit: rune::Unit) -> Self {
+        Self {
+            runtime: Arc::new(runtime),
+            unit: Arc::new(unit),
+        }
+    }
+
+    pub fn to_vm(&self) -> rune::Vm {
+        rune::Vm::new(self.runtime.clone(), self.unit.clone())
+    }
+}
+
 #[derive(Any)]
 pub struct State {
     #[rune(get, set)]
@@ -78,6 +96,8 @@ pub struct State {
     pub clipboard: Clipboard,
 
     pub debug: Option<String>,
+
+    pub rune_state: Option<RuneState>,
 }
 
 impl State {

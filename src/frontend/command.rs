@@ -17,7 +17,12 @@ pub struct Command {
     pub args: Vec<Arg>,
     pub description: &'static str,
     pub handler: Box<
-        dyn Fn(Vec<String>, &mut State, &Interactions, &Sender<logic::Message>) -> AnyResult<bool>,
+        dyn Fn(
+            Vec<String>,
+            &mut State,
+            &Interactions,
+            &Sender<logic::Message>,
+        ) -> FrontendResult<bool>,
     >,
 }
 
@@ -39,7 +44,7 @@ pub struct Property {
     pub name: &'static str,
     pub args: Vec<Arg>,
     pub description: &'static str,
-    pub setter: Box<dyn Fn(&[String], &mut State, &Sender<logic::Message>) -> AnyResult<()>>,
+    pub setter: Box<dyn Fn(&[String], &mut State, &Sender<logic::Message>) -> FrontendResult<()>>,
 }
 
 impl ToString for Property {
@@ -335,7 +340,7 @@ pub fn handle_command(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     let (name, args) = cmd.split_once(' ').unwrap_or((cmd, ""));
     let name = name.to_lowercase();
     let commands = &interactions.commands;
@@ -516,7 +521,7 @@ fn update_logic_property(
     name: &str,
     value: &str,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     sender.send(logic::Message::UpdateProperty(
         name.to_owned(),
         value.to_owned(),
@@ -530,7 +535,7 @@ pub fn handle_set_command(
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
     show_tooltip: bool,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     let properties = &interactions.properties;
 
     let qmark = String::from("?");

@@ -6,13 +6,18 @@ mod state;
 
 use std::{
     collections::VecDeque,
+    fmt::Debug,
     io::Stdout,
     path::Path,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
 use chrono::{Datelike as _, Timelike as _};
+use rune::{termcolor::Buffer, ContextError, Diagnostics, Module};
 
 use {
     crate::{cell::Direction, grid::Grid, logic},
@@ -73,9 +78,12 @@ pub enum CommandError {
     InvalidMode(String),
 }
 
-type AnyResult<T> = anyhow::Result<T, Error>;
+type FrontendResult<T> = anyhow::Result<T, Error>;
 
-pub(crate) fn run(receiver: Receiver<Message>, sender: Sender<logic::Message>) -> AnyResult<()> {
+pub(crate) fn run(
+    receiver: Receiver<Message>,
+    sender: Sender<logic::Message>,
+) -> anyhow::Result<()> {
     let mut terminal = setup_terminal()?;
 
     let res = wrapper(&mut terminal, receiver, &sender);
@@ -89,8 +97,11 @@ fn wrapper<B: Backend>(
     terminal: &mut Terminal<B>,
     receiver: Receiver<Message>,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> anyhow::Result<()> {
     let load_start = std::time::Instant::now();
+
+    let mut errors = Vec::new();
+    let mut log_error = |msg: &str, err: &anyhow::Error| errors.push(format!("{msg}: {err:?}"));
 
     let (path, expanded_path, config_file) = {
         let puccinia_config_path = std::env::var("PUCCINIA_CONFIG_PATH");
@@ -106,11 +117,13 @@ fn wrapper<B: Backend>(
         )
     };
 
-    let (config_path, bindings, binding_error) =
-        match config_file.as_ref().map(Keybindings::load).transpose() {
-            Ok(opt) => (Some(Path::new(expanded_path.as_str())), opt, None),
-            Err(err) => (None, None, Some(err)),
-        };
+    let (config_path, bindings) = match config_file.as_ref().map(Keybindings::load).transpose() {
+        Ok(opt) => (Some(Path::new(expanded_path.as_str())), opt),
+        Err(err) => {
+            log_error("Failed to load keybindings", &err);
+            (None, None)
+        }
+    };
 
     let mut state = State {
         grid: Grid::new(10, 10),
@@ -142,9 +155,35 @@ fn wrapper<B: Backend>(
         command_history_index: None,
         clipboard: Clipboard::new()?,
         debug: None,
+        rune_state: None,
     };
 
-    let sources = load_rune_commands(config_path);
+    if let Ok(mut sources) = load_rune_commands(config_path)
+        .inspect_err(|err| log_error("Custom command loading error", err))
+    {
+        let command_api_module = build_command_api_module()?;
+
+        let mut context = rune_modules::default_context()?;
+        context.install(command_api_module)?;
+
+        let mut diagnostics = Diagnostics::new();
+
+        let result = rune::prepare(&mut sources)
+            .with_context(&context)
+            .with_diagnostics(&mut diagnostics)
+            .build();
+
+        if !diagnostics.is_empty() {
+            let mut buffer = Buffer::no_color();
+            diagnostics.emit(&mut buffer, &sources)?;
+            errors.push(format!(
+                "Failed to compile custom commands: {}",
+                String::from_utf8_lossy(buffer.as_slice()).to_string()
+            ));
+        }
+
+        state.rune_state = Some(RuneState::new(context.runtime()?, result?))
+    }
 
     // Keeping them separate for simplicity's sake as commands need to mutably borrow the state.
     let interactions = Interactions {
@@ -152,53 +191,55 @@ fn wrapper<B: Backend>(
         properties: init_properties(),
     };
 
-    if let Some(err) = binding_error {
-        state.tooltip = Some(Tooltip::Error(format!(
-            "Failed to load keybindings: {}",
-            err
-        )));
-    } else {
-        match config_file {
-            // Apply properties from the config file
-            Some(content) => {
-                let errors = content
-                    .sets
-                    .iter()
-                    .flat_map(|(name, args)| {
-                        let args = std::iter::once(name.to_owned())
-                            .chain(args.split_whitespace().map(str::to_owned))
-                            .collect::<Vec<String>>();
+    // TODO: replace tooltip system with Vec, flush right
+    match config_file {
+        // Apply properties from the config file
+        Some(content) => {
+            let errors = content
+                .sets
+                .iter()
+                .flat_map(|(name, args)| {
+                    let args = std::iter::once(name.to_owned())
+                        .chain(args.split_whitespace().map(str::to_owned))
+                        .collect::<Vec<String>>();
 
-                        if let Err(e) = handle_set_command(
-                            args.as_slice(),
-                            &mut state,
-                            &interactions,
-                            sender,
-                            true,
-                        ) {
-                            Some(format!("Failed to apply config: {}", e))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<String>>();
+                    if let Err(e) =
+                        handle_set_command(args.as_slice(), &mut state, &interactions, sender, true)
+                    {
+                        Some(format!("Failed to apply config: {}", e))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<String>>();
 
-                if errors.len() > 0 {
-                    state.tooltip = Some(Tooltip::Error(errors.join("\n")));
-                } else {
-                    state.tooltip = Some(Tooltip::Info(format!(
-                        "Loaded config from {path} in {}ms",
-                        (std::time::Instant::now() - load_start).as_millis()
-                    )))
-                }
+            if errors.len() > 0 {
+                state.tooltip = Some(Tooltip::Error(errors.join("\n")));
+            } else {
+                state.tooltip = Some(Tooltip::Info(format!(
+                    "Loaded config from {path} in {}ms",
+                    (std::time::Instant::now() - load_start).as_millis()
+                )))
             }
-            None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
-        };
-    }
+        }
+        None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
+    };
 
     main_loop(terminal, &mut state, interactions, &receiver, &sender)?;
 
     Ok(())
+}
+
+fn build_command_api_module() -> Result<Module, ContextError> {
+    let mut module = Module::new();
+
+    module.ty::<State>()?;
+    // module.ty::<Config>()?;
+    // module.ty::<Grid>()?;
+    // module.ty::<GridHistory>()?;
+    // module.ty::<
+
+    Ok(module)
 }
 
 fn setup_terminal() -> std::io::Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -239,7 +280,7 @@ fn main_loop<B: Backend>(
     interactions: Interactions,
     receiver: &Receiver<Message>,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     let mut last_frame = Instant::now();
     let target_fps = 30;
     let target_delta = Duration::from_millis(1000 / target_fps);

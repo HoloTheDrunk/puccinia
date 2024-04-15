@@ -246,7 +246,7 @@ pub fn handle_events(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
             Ok(Event::Key(event)) => {
@@ -336,7 +336,7 @@ pub fn handle_events_history_mode(
     event: KeyEvent,
     hindex: usize,
     state: &mut State,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         history_back => {
             let new_index = (hindex + 1).min(state.history.inner.len());
@@ -371,7 +371,7 @@ pub fn handle_events_input_mode(
     mut string: String,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         backspace => {
             string.pop();
@@ -419,7 +419,7 @@ pub fn handle_events_running_mode(
     event: KeyEvent,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         stop_run | escape => {
             state.mode = EditorMode::Normal;
@@ -444,7 +444,7 @@ pub fn handle_events_visual_mode(
     event: KeyEvent,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     let EditorMode::Visual(start, end) = state.mode else {
         unreachable!()
     };
@@ -491,7 +491,7 @@ pub fn handle_events_insert_mode(
     event: KeyEvent,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         delete_current if !(event.modifiers & KeyModifiers::SHIFT).is_empty() => {
             state.grid.set_current(CellValue::from(' '));
@@ -528,7 +528,7 @@ pub fn handle_events_command_mode(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     let exit_command_mode = |state: &mut State| {
         state.mode = state.previous_mode.clone().unwrap_or(EditorMode::Normal);
     };
@@ -607,7 +607,7 @@ fn handle_events_normal_mode(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     map_binding!(event, state, match {
         start_insert => {
             state.mode = EditorMode::Insert;

@@ -1,6 +1,11 @@
+use super::prelude::*;
+
 use crate::grid::span2d;
 
-use super::prelude::*;
+use std::{ffi::OsString, fs::ReadDir};
+
+use rune::{Source, Sources};
+use walkdir::WalkDir;
 
 pub struct Interactions {
     pub commands: Vec<Command>,
@@ -117,6 +122,23 @@ impl ArgType {
             ArgType::Any => true,
         }
     }
+}
+
+pub fn load_rune_commands(config_path: Option<&Path>) -> anyhow::Result<Sources> {
+    let mut sources = Sources::new();
+
+    if let Some(path) = config_path.map(|p| p.join("commands")) {
+        for entry in WalkDir::new(path).into_iter().flatten() {
+            let file_name = entry.file_name().to_string_lossy();
+            let file_type = entry.file_type();
+
+            if file_type.is_file() && file_name.ends_with(".rn") {
+                Source::from_path(entry.path()).map(|source| sources.insert(source))??;
+            }
+        }
+    }
+
+    Ok(sources)
 }
 
 pub fn init_commands() -> Vec<Command> {

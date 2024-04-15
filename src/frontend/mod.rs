@@ -92,7 +92,7 @@ fn wrapper<B: Backend>(
 ) -> AnyResult<()> {
     let load_start = std::time::Instant::now();
 
-    let (path, config_file) = {
+    let (path, expanded_path, config_file) = {
         let puccinia_config_path = std::env::var("PUCCINIA_CONFIG_PATH");
         let path = puccinia_config_path.unwrap_or(format!(
             "{}/config.pucci",
@@ -101,14 +101,16 @@ fn wrapper<B: Backend>(
         let expanded_path = shellexpand::tilde(&path).to_string();
         (
             path.clone(),
+            expanded_path.clone(),
             ConfigFile::try_from(Path::new(expanded_path.as_str())).ok(),
         )
     };
 
-    let (bindings, binding_error) = match config_file.as_ref().map(Keybindings::load).transpose() {
-        Ok(opt) => (opt, None),
-        Err(err) => (None, Some(err)),
-    };
+    let (config_path, bindings, binding_error) =
+        match config_file.as_ref().map(Keybindings::load).transpose() {
+            Ok(opt) => (Some(Path::new(expanded_path.as_str())), opt, None),
+            Err(err) => (None, None, Some(err)),
+        };
 
     let mut state = State {
         grid: Grid::new(10, 10),
@@ -141,6 +143,8 @@ fn wrapper<B: Backend>(
         clipboard: Clipboard::new()?,
         debug: None,
     };
+
+    let sources = load_rune_commands(config_path);
 
     // Keeping them separate for simplicity's sake as commands need to mutably borrow the state.
     let interactions = Interactions {

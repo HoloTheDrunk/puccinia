@@ -2,8 +2,6 @@ use super::prelude::*;
 
 use crate::grid::span2d;
 
-use std::{ffi::OsString, fs::ReadDir};
-
 use rune::{Source, Sources};
 use walkdir::WalkDir;
 

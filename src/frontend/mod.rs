@@ -2,6 +2,7 @@ mod command;
 mod config;
 mod connect;
 mod input;
+mod popup;
 mod state;
 
 use std::{
@@ -16,8 +17,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-use chrono::{Datelike as _, Timelike as _};
-use rune::{termcolor::Buffer, ContextError, Diagnostics, Module};
+use chrono::{DateTime, Local, Utc};
+use ratatui::{
+    style::Stylize,
+    text::{Line, Text},
+};
+
+use self::popup::{Notification, NotificationContent, Tooltip};
 
 use {
     crate::{cell::Direction, grid::Grid, logic},
@@ -29,14 +35,16 @@ use {
 };
 
 use {
+    ansi_to_tui::IntoText,
     arboard::Clipboard,
+    chrono::{Datelike as _, Timelike as _},
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
     itertools::Itertools,
-    tui::{
+    ratatui::{
         backend::{Backend, CrosstermBackend},
         layout::{Margin, Rect},
         style::{Color, Style},
@@ -44,10 +52,11 @@ use {
         widgets::{Block, Borders, Paragraph},
         Frame, Terminal,
     },
+    rune::{termcolor::Buffer, ContextError, Diagnostics, Module},
 };
 
 pub mod prelude {
-    pub use super::{command::*, connect::*, state::*, *};
+    pub use super::{command::*, connect::*, popup::*, state::*, *};
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -137,6 +146,10 @@ fn wrapper<B: Backend>(
             lids: true,
             sides: true,
 
+            notification_max_size: (50, 5),
+            notification_capacity: 64,
+            notification_time: 5,
+
             live_output: true,
 
             bindings: bindings.unwrap_or_default(),
@@ -151,6 +164,7 @@ fn wrapper<B: Backend>(
         output: String::new(),
         output_buffer: None,
         tooltip: None,
+        notifications: Vec::new(),
         command_history: VecDeque::new(),
         command_history_index: None,
         clipboard: Clipboard::new()?,
@@ -158,9 +172,13 @@ fn wrapper<B: Backend>(
         rune_state: None,
     };
 
-    if let Ok(mut sources) = load_rune_commands(config_path)
-        .inspect_err(|err| log_error("Custom command loading error", err))
-    {
+    if let Ok(mut sources) = load_rune_commands(config_path).inspect_err(|err| {
+        state
+            .notifications
+            .push(Notification::new(NotificationContent::Info(format!(
+                "Custom command loading error: {err:?}"
+            ))))
+    }) {
         let command_api_module = build_command_api_module()?;
 
         let mut context = rune_modules::default_context()?;
@@ -176,14 +194,27 @@ fn wrapper<B: Backend>(
         if !diagnostics.is_empty() {
             let mut buffer = Buffer::no_color();
             diagnostics.emit(&mut buffer, &sources)?;
-            errors.push(format!(
-                "Failed to compile custom commands: {}",
-                String::from_utf8_lossy(buffer.as_slice()).to_string()
-            ));
+            state
+                .notifications
+                .push(Notification::new(NotificationContent::RuneError(
+                    String::from_utf8_lossy(buffer.as_slice()).to_string(),
+                )));
         }
 
         state.rune_state = Some(RuneState::new(context.runtime()?, result?))
     }
+
+    state
+        .notifications
+        .push(Notification::new(NotificationContent::Info(
+            "This is a notification".to_owned(),
+        )));
+
+    state
+        .notifications
+        .push(Notification::new(NotificationContent::Info(
+            "This is another notification".to_owned(),
+        )));
 
     // Keeping them separate for simplicity's sake as commands need to mutably borrow the state.
     let interactions = Interactions {
@@ -384,7 +415,7 @@ fn autosave(state: &mut State, last_autosave: &mut Instant) {
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
+fn ui(f: &mut Frame, state: &mut State) {
     let frame_size = f.size();
 
     let mut grid_area = frame_size.clone();
@@ -522,9 +553,83 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     }
 
     render_tooltip(f, grid_area, state);
+    render_notifications(f, grid_area, state);
 }
 
-fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
+fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
+    state.debug = Some(format!("Notifications: {}", state.notifications.len()));
+
+    let (max_width, max_height) = state.config.notification_max_size;
+    let mut cum_height = 0; // °u°
+    let now = Local::now();
+    for Notification { content, .. } in state
+        .notifications
+        .iter()
+        .filter(|n| (now - n.created_at).num_seconds() < state.config.notification_time as i64)
+        .rev()
+    {
+        if cum_height > grid_area.height - state.config.notification_max_size.1 - 2 {
+            break;
+        }
+
+        let border_style = Style::reset().bold();
+        let (title, content, border_style, style) = match content {
+            NotificationContent::Info(string) => (
+                "Info",
+                string.as_str(),
+                border_style.fg(Color::Green),
+                Style::reset(),
+            ),
+            NotificationContent::RuneError(err) => {
+                ("Rune Error", err.as_str(), border_style, Style::reset())
+            }
+            NotificationContent::Error(err) => (
+                "Error",
+                (**err).as_ref(),
+                border_style.fg(Color::Red),
+                Style::reset().fg(Color::Red),
+            ),
+        };
+
+        // Attempt to apply ANSI color escape codes, otherwise default to raw print
+        let text = content.into_text().unwrap_or(Text::from(content));
+
+        let text_width = text
+            .iter()
+            .take(max_height as usize)
+            .map(Line::width)
+            .max()
+            .unwrap_or(max_width as usize)
+            .min(max_width as usize) as u16;
+
+        let total_height = text.height().min(max_height as usize) as u16 + 2;
+        cum_height += total_height;
+
+        let text_margin = Margin::new(2, 1);
+
+        let area = Rect {
+            x: grid_area.right() - text_width - text_margin.horizontal * 2, // offset for the borders
+            y: grid_area.bottom() - cum_height,
+            width: text_width + text_margin.horizontal * 2,
+            height: total_height,
+        };
+
+        frame.render_widget(
+            Block::new()
+                .title(title)
+                .borders(Borders::ALL)
+                .style(border_style),
+            area,
+        );
+
+        frame.render_widget(
+            Paragraph::new(text).style(style),
+            area.inner(&Margin::new(2, 1)),
+        );
+    }
+}
+
+fn render_tooltip(frame: &mut Frame, grid_area: Rect, state: &State) {
     if let Some(tooltip) = state.tooltip.clone() {
         let (title, content, style) = match tooltip {
             Tooltip::Input(mode, input) => (
@@ -546,7 +651,11 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
             .map(str::trim)
             .flat_map(|s| {
                 s.chars()
-                    .chunks(area.width as usize - 10)
+                    .chunks(
+                        grid_area.width as usize
+                            - state.config.notification_max_size.0 as usize
+                            - 2,
+                    )
                     .into_iter()
                     .map(|chunk| chunk.collect::<String>())
                     .collect::<Vec<String>>()
@@ -554,8 +663,8 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
             .collect::<Vec<String>>();
 
         let command_area = Rect {
-            x: area.left(),
-            y: area.bottom() - 2 - lines.len().max(1) as u16,
+            x: grid_area.left(),
+            y: grid_area.bottom() - 2 - lines.len().max(1) as u16,
             width: (lines.iter().map(String::len).max().unwrap_or(0) as u16)
                 .max(title.len() as u16)
                 + 4,
@@ -572,10 +681,7 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
 
         frame.render_widget(
             Paragraph::new(lines.join("\n").clone()).style(style),
-            command_area.inner(&Margin {
-                vertical: 1,
-                horizontal: 2,
-            }),
+            command_area.inner(&Margin::new(2, 1)),
         );
     }
 }

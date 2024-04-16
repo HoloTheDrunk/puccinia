@@ -47,6 +47,8 @@ pub struct Keybindings {
 
     // Command mode
     pub submit_command: KeyEvent,
+    pub command_history_up: KeyEvent,
+    pub command_history_down: KeyEvent,
 
     // Visual mode
     pub yank: KeyEvent,
@@ -111,6 +113,8 @@ impl Default for Keybindings {
 
             // Command mode
             submit_command: KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            command_history_up: KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            command_history_down: KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
 
             // Visual mode
             yank: KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
@@ -534,7 +538,7 @@ pub fn handle_events_command_mode(
     };
 
     map_binding!(event, state, match {
-        up => {
+        command_history_up => {
             if !cmd.trim().is_empty() && state.command_history_index.is_none() {
                 state.command_history.push_front(cmd);
             }
@@ -549,7 +553,7 @@ pub fn handle_events_command_mode(
                 state.mode = EditorMode::Command(state.command_history[new_index].clone());
             }
         },
-        down => {
+        command_history_down => {
             if state.command_history_index == Some(0) {
                 state.command_history_index = None;
                 state.mode = EditorMode::Command(String::new());

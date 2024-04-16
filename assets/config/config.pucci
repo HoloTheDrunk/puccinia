@@ -78,6 +78,8 @@ bind toggle_breakpoint b
 
 # Command mode
 bind submit_command <Enter>
+bind command_history_up <Up>
+bind command_history_down <Down>
 
 # Input mode (not insert mode, this is for input cells in running mode)
 bind submit_input <Enter>

@@ -1,12 +1,13 @@
-use rune::compile::Named;
-
-use super::Keybindings;
+use super::{
+    popup::{Notification, Tooltip},
+    Keybindings,
+};
 
 use crate::grid::Grid;
 
 use std::{collections::VecDeque, sync::Arc};
 
-use {arboard::Clipboard, rune::Any, tui::style::Color};
+use {arboard::Clipboard, ratatui::style::Color, rune::Any};
 
 #[derive(Clone, Default, Debug, Any)]
 pub struct Config {
@@ -20,6 +21,11 @@ pub struct Config {
     pub heat: bool,
     pub lids: bool,
     pub sides: bool,
+
+    // Notifications list settings
+    pub notification_max_size: (u16, u16),
+    pub notification_capacity: u32,
+    pub notification_time: u32,
 
     // Running mode optimizations
     #[rune(get, set)]
@@ -84,6 +90,7 @@ pub struct State {
 
     #[rune(get)]
     pub tooltip: Option<Tooltip>,
+    pub notifications: Vec<Notification>,
     #[rune(get)]
     pub config: Config,
 
@@ -162,7 +169,7 @@ pub enum EditorMode {
     History(usize),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Any)]
 pub enum InputMode {
     Integer,
     ASCII,
@@ -179,13 +186,4 @@ impl From<&EditorMode> for Color {
             EditorMode::History(_) => Color::LightMagenta,
         }
     }
-}
-
-#[derive(Clone, Debug, Any)]
-#[allow(unused)]
-pub enum Tooltip {
-    Input(InputMode, String),
-    Command(String),
-    Info(String),
-    Error(String),
 }

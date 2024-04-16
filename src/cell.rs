@@ -2,7 +2,7 @@ use crate::frontend::prelude::Config;
 
 use {
     anyhow::anyhow,
-    tui::{
+    ratatui::{
         style::{Color, Style},
         text::Span,
     },

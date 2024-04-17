@@ -1,11 +1,15 @@
+// pub fn heat(state, toggle) {
+//     Ok(())
+// }
+
 pub fn heat(state, toggle) {
     if toggle is bool {
         state.config.heat = toggle;
         Ok(())
     } else {
-        Err(CommandError::InvalidArgType {
+        Err(RuneCommandError::InvalidArgType {
             got: format!("{:?}", toggle),
-            expected: ArgType::Bool,
+            expected: ArgType::Boolean,
         })
     }
 }

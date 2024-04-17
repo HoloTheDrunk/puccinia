@@ -2,7 +2,7 @@ use super::prelude::*;
 
 use crate::grid::span2d;
 
-use rune::{Source, Sources};
+use rune::{Any, Source, Sources};
 use walkdir::WalkDir;
 
 pub struct Interactions {
@@ -74,12 +74,17 @@ impl ToString for Arg {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Any)]
 pub enum ArgType {
+    #[rune(constructor)]
     String,
+    #[rune(constructor)]
     Number,
+    #[rune(constructor)]
     Boolean,
+    #[rune(constructor)]
     Axis,
+    #[rune(constructor)]
     Any,
 }
 

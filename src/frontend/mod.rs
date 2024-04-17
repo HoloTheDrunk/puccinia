@@ -21,6 +21,7 @@ use chrono::{DateTime, Local, Utc};
 use ratatui::{
     style::Stylize,
     text::{Line, Text},
+    widgets::BorderType,
 };
 
 use self::popup::{Notification, NotificationContent, Tooltip};
@@ -114,15 +115,16 @@ fn wrapper<B: Backend>(
 
     let (path, expanded_path, config_file) = {
         let puccinia_config_path = std::env::var("PUCCINIA_CONFIG_PATH");
-        let path = puccinia_config_path.unwrap_or(format!(
-            "{}/config.pucci",
-            std::env::var("HOME").unwrap_or(".".to_owned())
-        ));
-        let expanded_path = shellexpand::tilde(&path).to_string();
+        let dir_path = puccinia_config_path
+            .or(std::env::var("HOME"))
+            .unwrap_or(".".to_owned());
+        let expanded_path = shellexpand::tilde(&dir_path).to_string();
+        let config_path = format!("{}/config.pucci", expanded_path);
+
         (
-            path.clone(),
+            dir_path.clone(),
             expanded_path.clone(),
-            ConfigFile::try_from(Path::new(expanded_path.as_str())).ok(),
+            ConfigFile::try_from(Path::new(config_path.as_str())).ok(),
         )
     };
 
@@ -148,7 +150,7 @@ fn wrapper<B: Backend>(
 
             notification_max_size: (50, 5),
             notification_capacity: 64,
-            notification_time: 5,
+            notification_time: 15,
 
             live_output: true,
 
@@ -182,7 +184,9 @@ fn wrapper<B: Backend>(
         let command_api_module = build_command_api_module()?;
 
         let mut context = rune_modules::default_context()?;
-        context.install(command_api_module)?;
+        context
+            .install(command_api_module)
+            .expect("Failed to install Rune API module");
 
         let mut diagnostics = Diagnostics::new();
 
@@ -193,15 +197,21 @@ fn wrapper<B: Backend>(
 
         if !diagnostics.is_empty() {
             let mut buffer = Buffer::no_color();
-            diagnostics.emit(&mut buffer, &sources)?;
+            diagnostics
+                .emit(&mut buffer, &sources)
+                .expect("Failed to emit Rune diagnostics");
+            // panic!("{}", String::from_utf8_lossy(buffer.as_slice()).to_string());
             state
                 .notifications
                 .push(Notification::new(NotificationContent::RuneError(
                     String::from_utf8_lossy(buffer.as_slice()).to_string(),
                 )));
+        } else {
+            state.rune_state = Some(RuneState::new(
+                context.runtime().expect("Failed to build Rune runtime"),
+                result.expect("Failed to build Rune unit"),
+            ));
         }
-
-        state.rune_state = Some(RuneState::new(context.runtime()?, result?))
     }
 
     state
@@ -250,7 +260,15 @@ fn wrapper<B: Backend>(
                 state.tooltip = Some(Tooltip::Info(format!(
                     "Loaded config from {path} in {}ms",
                     (std::time::Instant::now() - load_start).as_millis()
-                )))
+                )));
+            }
+
+            for error in errors {
+                state
+                    .notifications
+                    .push(Notification::new(NotificationContent::Error(Box::new(
+                        error,
+                    ))));
             }
         }
         None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
@@ -265,10 +283,11 @@ fn build_command_api_module() -> Result<Module, ContextError> {
     let mut module = Module::new();
 
     module.ty::<State>()?;
-    // module.ty::<Config>()?;
-    // module.ty::<Grid>()?;
-    // module.ty::<GridHistory>()?;
-    // module.ty::<
+    module.ty::<Config>()?;
+    module.ty::<Grid>()?;
+    module.ty::<GridHistory>()?;
+    module.ty::<RuneCommandError>()?;
+    module.ty::<ArgType>()?;
 
     Ok(module)
 }
@@ -562,7 +581,10 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
     let (max_width, max_height) = state.config.notification_max_size;
     let mut cum_height = 0; // °u°
     let now = Local::now();
-    for Notification { content, .. } in state
+    for Notification {
+        created_at,
+        content,
+    } in state
         .notifications
         .iter()
         .filter(|n| (now - n.created_at).num_seconds() < state.config.notification_time as i64)
@@ -572,21 +594,20 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
             break;
         }
 
-        let border_style = Style::reset().bold();
         let (title, content, border_style, style) = match content {
             NotificationContent::Info(string) => (
                 "Info",
                 string.as_str(),
-                border_style.fg(Color::Green),
+                Style::reset().fg(Color::Green),
                 Style::reset(),
             ),
             NotificationContent::RuneError(err) => {
-                ("Rune Error", err.as_str(), border_style, Style::reset())
+                ("Rune Error", err.as_str(), Style::reset(), Style::reset())
             }
             NotificationContent::Error(err) => (
                 "Error",
                 (**err).as_ref(),
-                border_style.fg(Color::Red),
+                Style::reset().fg(Color::Red),
                 Style::reset().fg(Color::Red),
             ),
         };
@@ -600,7 +621,9 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
             .map(Line::width)
             .max()
             .unwrap_or(max_width as usize)
-            .min(max_width as usize) as u16;
+            // TODO: hard wrap lines like for tooltips
+            // .min(max_width as usize) as u16;
+            .min(grid_area.width as usize) as u16;
 
         let total_height = text.height().min(max_height as usize) as u16 + 2;
         cum_height += total_height;
@@ -614,17 +637,31 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
             height: total_height,
         };
 
+        // Frame
         frame.render_widget(
             Block::new()
                 .title(title)
                 .borders(Borders::ALL)
-                .style(border_style),
+                .border_style(border_style)
+                .border_type(BorderType::Plain),
             area,
         );
 
+        // Content
         frame.render_widget(
             Paragraph::new(text).style(style),
             area.inner(&Margin::new(2, 1)),
+        );
+
+        // Progress bar
+        let progress_bar_width = area.width as usize - 2 - title.len();
+        let progress = (progress_bar_width as f32 * (now - created_at).num_seconds() as f32
+            / state.config.notification_time as f32) as usize;
+        frame.buffer_mut().set_string(
+            area.left() + title.len() as u16 + 1,
+            area.top(),
+            "━".repeat(progress_bar_width - progress),
+            Style::default(),
         );
     }
 }

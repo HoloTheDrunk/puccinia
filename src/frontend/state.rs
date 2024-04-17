@@ -1,6 +1,6 @@
 use super::{
     popup::{Notification, Tooltip},
-    Keybindings,
+    ArgType, Keybindings,
 };
 
 use crate::grid::Grid;
@@ -74,6 +74,17 @@ impl RuneState {
     pub fn to_vm(&self) -> rune::Vm {
         rune::Vm::new(self.runtime.clone(), self.unit.clone())
     }
+}
+
+#[derive(Clone, Debug, Any)]
+pub enum RuneCommandError {
+    #[rune(constructor)]
+    InvalidArgType {
+        #[rune(get)]
+        got: String,
+        #[rune(get)]
+        expected: ArgType,
+    },
 }
 
 #[derive(Any)]

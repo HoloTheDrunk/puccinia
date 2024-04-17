@@ -200,7 +200,6 @@ fn wrapper<B: Backend>(
             diagnostics
                 .emit(&mut buffer, &sources)
                 .expect("Failed to emit Rune diagnostics");
-            // panic!("{}", String::from_utf8_lossy(buffer.as_slice()).to_string());
             state
                 .notifications
                 .push(Notification::new(NotificationContent::RuneError(
@@ -282,12 +281,23 @@ fn wrapper<B: Backend>(
 fn build_command_api_module() -> Result<Module, ContextError> {
     let mut module = Module::new();
 
-    module.ty::<State>()?;
-    module.ty::<Config>()?;
-    module.ty::<Grid>()?;
-    module.ty::<GridHistory>()?;
-    module.ty::<RuneCommandError>()?;
-    module.ty::<ArgType>()?;
+    macro_rules! export_types {
+        ($($ty:ty),* $(,)?) => {
+            $(module.ty::<$ty>()?;)*
+        }
+    }
+
+    export_types! {
+        State,
+        Config,
+        Grid,
+        GridHistory,
+        RuneCommandError,
+        ArgType,
+        Tooltip,
+        EditorMode,
+        InputMode,
+    };
 
     Ok(module)
 }

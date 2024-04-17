@@ -1,9 +1,5 @@
-// pub fn heat(state, toggle) {
-//     Ok(())
-// }
-
 pub fn heat(state, toggle) {
-    if toggle is bool {
+    if state is State && toggle is bool {
         state.config.heat = toggle;
         Ok(())
     } else {

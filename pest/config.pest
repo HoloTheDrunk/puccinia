@@ -5,10 +5,33 @@ ALPHA_SNAKE = _{ (ASCII_ALPHA | "_") }
 ALNUM_SNAKE = _{ (ASCII_ALPHANUMERIC | "_") }
 
 config = _{ SOI ~ statement* ~ EOI }
-statement = _{ set | bind }
+statement = _{ set | bind | command }
 
 set = { "set" ~ identifier ~ value }
 bind = { "bind" ~ identifier ~ keyEvent }
+
+command = { "command" 
+	~ identifier ~ "=" ~ identifier 
+  ~ (
+    (":" ~ command_arg* ~ command_description? ~ "!command") 
+    | "!command"?
+  )
+}
+command_arg = { "@"
+	~ identifier ~ ":" ~ command_arg_ty
+  ~ ("-" ~ command_arg_description)? ~
+  "@"
+}
+command_arg_ty = @{ 
+	"Any" 
+  | "String"
+  | "Number"
+  | "Boolean"
+  | "Axis"
+  | ("Struct" ~ "(" ~ identifier ~ ")")
+}
+command_arg_description = @{ (!"@" ~ ANY)+ }
+command_description = @{ (!"!command" ~ ANY)+ }
 
 identifier = @{ ALPHA_SNAKE ~ ALNUM_SNAKE* }
 value = @{ (!NEWLINE ~ ANY)+ }

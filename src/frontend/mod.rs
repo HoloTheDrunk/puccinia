@@ -227,11 +227,10 @@ fn wrapper<B: Backend>(
 
     // Keeping them separate for simplicity's sake as commands need to mutably borrow the state.
     let interactions = Interactions {
-        commands: init_commands(),
+        commands: init_commands(&config_file, &mut state),
         properties: init_properties(),
     };
 
-    // TODO: replace tooltip system with Vec, flush right
     match config_file {
         // Apply properties from the config file
         Some(content) => {

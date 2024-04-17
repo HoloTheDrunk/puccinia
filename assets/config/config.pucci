@@ -88,3 +88,14 @@ bind submit_input <Enter>
 bind history_back u
 bind history_forward ^r
 bind history_accept <Enter>
+
+## Commands
+
+# Toggle heat
+command heat = heat:
+  @state: Struct(State)@
+  @visible: Boolean@
+  Toggle heat display
+!command
+
+command identity = identity

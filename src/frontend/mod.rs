@@ -213,18 +213,6 @@ fn wrapper<B: Backend>(
         }
     }
 
-    state
-        .notifications
-        .push(Notification::new(NotificationContent::Info(
-            "This is a notification".to_owned(),
-        )));
-
-    state
-        .notifications
-        .push(Notification::new(NotificationContent::Info(
-            "This is another notification".to_owned(),
-        )));
-
     // Keeping them separate for simplicity's sake as commands need to mutably borrow the state.
     let interactions = Interactions {
         commands: init_commands(&config_file, &mut state),
@@ -252,14 +240,12 @@ fn wrapper<B: Backend>(
                 })
                 .collect::<Vec<String>>();
 
-            if errors.len() > 0 {
-                state.tooltip = Some(Tooltip::Error(errors.join("\n")));
-            } else {
-                state.tooltip = Some(Tooltip::Info(format!(
+            state
+                .notifications
+                .push(Notification::new(NotificationContent::Info(format!(
                     "Loaded config from {path} in {}ms",
                     (std::time::Instant::now() - load_start).as_millis()
-                )));
-            }
+                ))));
 
             for error in errors {
                 state
@@ -651,7 +637,7 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
             Block::new()
                 .title(title)
                 .borders(Borders::ALL)
-                .border_style(border_style)
+                .border_style(border_style.bold())
                 .border_type(BorderType::Plain),
             area,
         );
@@ -669,7 +655,7 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
         frame.buffer_mut().set_string(
             area.left() + title.len() as u16 + 1,
             area.top(),
-            "━".repeat(progress_bar_width - progress),
+            format!("{}╉", "━".repeat(progress_bar_width - progress - 1)),
             Style::default(),
         );
     }

@@ -93,9 +93,10 @@ bind history_accept <Enter>
 
 # Toggle heat
 command heat = heat:
-  @state: Struct(State)@
   @visible: Boolean@
   Toggle heat display
 !command
 
-command identity = identity
+command identity = identity:
+  @value: Any@
+!command

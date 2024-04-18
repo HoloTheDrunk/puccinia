@@ -20,7 +20,14 @@ pub struct ConfigFile {
 pub struct CommandBinding {
     pub bind: String,
     pub name: String,
-    pub args: HashMap<String, ArgType>,
+    pub args: Vec<CommandBindingArg>,
+    pub description: Option<String>,
+}
+
+#[derive(Clone, Debug)]
+pub struct CommandBindingArg {
+    pub name: String,
+    pub arg_type: ArgType,
     pub description: Option<String>,
 }
 
@@ -69,19 +76,16 @@ impl ConfigFile {
     fn parse_command(mut pairs: Pairs<Rule>) -> CommandBinding {
         let bind = pairs.next().unwrap().as_str().to_string();
         let name = pairs.next().unwrap().as_str().to_string();
-        let mut args = HashMap::new();
+        let mut args = Vec::new();
         let mut description = None;
 
         for pair in pairs {
             let rule = pair.as_rule();
 
             match rule {
-                Rule::command_arg => {
-                    let (key, value) = Self::parse_command_arg(pair.into_inner());
-                    args.insert(key, value);
-                }
+                Rule::command_arg => args.push(Self::parse_command_arg(pair.into_inner())),
                 Rule::command_description => description = Some(pair.as_str().to_string()),
-                _ => unreachable!(),
+                _ => unreachable!("Parsing grammar error"),
             }
         }
 
@@ -93,13 +97,12 @@ impl ConfigFile {
         }
     }
 
-    fn parse_command_arg(mut pairs: Pairs<Rule>) -> (String, ArgType) {
+    fn parse_command_arg(mut pairs: Pairs<Rule>) -> CommandBindingArg {
         let name = pairs.next().unwrap().as_str().to_string();
 
         let type_pair = pairs.next().unwrap();
         let type_str = type_pair.as_str();
 
-        // FIXME: Bug
         let arg_type = if let Some(struct_name) = type_pair.into_inner().next() {
             ArgType::Struct(struct_name.as_str().to_string())
         } else {
@@ -108,11 +111,18 @@ impl ConfigFile {
                 "String" => ArgType::String,
                 "Number" => ArgType::Number,
                 "Boolean" => ArgType::Boolean,
-                _ => unreachable!(),
+                // TODO: replace with special variant to warn user when converting to a command
+                _ => ArgType::Any,
             }
         };
 
-        (name, arg_type)
+        let description = pairs.next().map(|p| p.as_str().to_string());
+
+        CommandBindingArg {
+            name,
+            arg_type,
+            description,
+        }
     }
 }
 

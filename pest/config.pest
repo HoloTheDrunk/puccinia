@@ -22,7 +22,7 @@ command_arg = { "@"
   ~ ("-" ~ command_arg_description)? ~
   "@"
 }
-command_arg_ty = @{ 
+command_arg_ty = { 
 	"Any" 
   | "String"
   | "Number"

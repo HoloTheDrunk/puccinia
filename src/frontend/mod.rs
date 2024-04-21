@@ -596,6 +596,12 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
                 Style::reset().fg(Color::Green),
                 Style::reset(),
             ),
+            NotificationContent::CommandResult(result) => (
+                "Command result",
+                result.as_str(),
+                Style::reset().fg(Color::LightGreen),
+                Style::reset(),
+            ),
             NotificationContent::RuneError(err) => {
                 ("Rune Error", err.as_str(), Style::reset(), Style::reset())
             }
@@ -618,6 +624,7 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
             .unwrap_or(max_width as usize)
             // TODO: hard wrap lines like for tooltips
             // .min(max_width as usize) as u16;
+            .max(title.len() + 2)
             .min(grid_area.width as usize) as u16;
 
         let total_height = text.height().min(max_height as usize) as u16 + 2;

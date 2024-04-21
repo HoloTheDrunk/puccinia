@@ -103,17 +103,10 @@ impl ConfigFile {
         let type_pair = pairs.next().unwrap();
         let type_str = type_pair.as_str();
 
-        let arg_type = if let Some(struct_name) = type_pair.into_inner().next() {
-            ArgType::Struct(struct_name.as_str().to_string())
-        } else {
-            match type_str {
-                "Any" => ArgType::Any,
-                "String" => ArgType::String,
-                "Number" => ArgType::Number,
-                "Boolean" => ArgType::Boolean,
-                // TODO: replace with special variant to warn user when converting to a command
-                _ => ArgType::Any,
-            }
+        let arg_type = match type_str {
+            "Number" => ArgType::Number,
+            "Boolean" => ArgType::Boolean,
+            "String" | _ => ArgType::String,
         };
 
         let description = pairs.next().map(|p| p.as_str().to_string());
@@ -170,7 +163,6 @@ mod test {
         parse_config("command foo = bar");
         parse_config("command foo = bar: Description !command");
         parse_config("command foo = bar: @baz: Any@ !command");
-        parse_config("command foo = bar: @baz: Struct(Bob) - Bob@ Description !command");
     }
 
     #[test]

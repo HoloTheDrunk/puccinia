@@ -93,6 +93,7 @@ impl ToString for Property {
     }
 }
 
+#[derive(Clone)]
 pub struct Arg {
     pub name: String,
     pub optional: bool,
@@ -140,10 +141,6 @@ pub enum ArgType {
     Boolean,
     #[rune(constructor)]
     Axis,
-    #[rune(constructor)]
-    Any,
-    #[rune(constructor)]
-    Struct(#[rune(get)] String),
 }
 
 impl From<&str> for ArgType {
@@ -164,7 +161,6 @@ impl ArgType {
     pub fn is_compatible(&self, other: &Self) -> bool {
         match (self, other) {
             (a, b) if a == b => true,
-            (ArgType::Any, _) => true,
             (ArgType::String, _) => true,
             (ArgType::Boolean, ArgType::Number) => true,
             _ => false,
@@ -179,14 +175,12 @@ impl ToString for ArgType {
             ArgType::Number => "Number",
             ArgType::Boolean => "Boolean",
             ArgType::Axis => "Axis",
-            ArgType::Any => "Any",
-            ArgType::Struct(name) => name,
         }
         .to_owned()
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Any)]
 pub enum Axis {
     X,
     Y,
@@ -235,23 +229,24 @@ impl From<CommandBinding> for Command {
         }: CommandBinding,
     ) -> Self {
         let arg_count = args.len();
+        let converted_args = args
+            .iter()
+            .map(
+                |CommandBindingArg {
+                     name,
+                     arg_type,
+                     description,
+                 }| Arg {
+                    name: name.clone(),
+                    optional: false,
+                    arg_type: arg_type.clone(),
+                    description: description.clone(),
+                },
+            )
+            .collect::<Vec<Arg>>();
         Command {
             names: vec![bind.clone()],
-            args: args
-                .iter()
-                .map(
-                    |CommandBindingArg {
-                         name,
-                         arg_type,
-                         description,
-                     }| Arg {
-                        name: name.clone(),
-                        optional: false,
-                        arg_type: arg_type.clone(),
-                        description: description.clone(),
-                    },
-                )
-                .collect(),
+            args: converted_args.clone(),
             description: description.clone(),
             handler: Box::new(move |passed_args, state, _interactions, _sender| {
                 if let Some(rune_state) = &state.rune_state {
@@ -268,32 +263,45 @@ impl From<CommandBinding> for Command {
                         return Ok(false);
                     }
 
-                    // TODO: add type information to args to convert them to the correct type
-                    // before converting to a Value
-                    let Ok(args) = passed_args
+                    let args = passed_args
                         .into_iter()
-                        .map(rune::to_value)
-                        .collect::<Result<Vec<Value>, _>>()
-                    else {
+                        .enumerate()
+                        .map(|(index, arg)| match converted_args[index].arg_type {
+                            ArgType::String => arg.to_value().into_result().map(Some),
+                            ArgType::Number => {
+                                arg.parse::<f32>().map(rune::to_value).ok().transpose()
+                            }
+                            ArgType::Boolean => {
+                                arg.parse::<bool>().map(rune::to_value).ok().transpose()
+                            }
+                            ArgType::Axis => Axis::try_from(arg.chars().nth(0).unwrap())
+                                .map(rune::to_value)
+                                .ok()
+                                .transpose(),
+                        })
+                        .map(Result::ok)
+                        .map(Option::flatten)
+                        .collect::<Vec<Option<Value>>>();
+
+                    let args = if args.iter().any(Option::is_none) {
                         state
                             .notifications
                             .push(Notification::new(NotificationContent::Error(Box::new(
-                                "Invalid arguments",
+                                format!("Invalid arguments: {args:?}\n\
+                                        (`None` indicates a parsing error, you should check the command's expected argument types)"),
                             ))));
                         return Ok(false);
+                    } else {
+                        args.into_iter().map(Option::unwrap).collect::<Vec<Value>>()
                     };
 
                     match rune_state
                         .to_vm()
                         .call([name.as_str()], (&mut *state, args))
                     {
-                        Ok(result) => {
-                            state
-                                .notifications
-                                .push(Notification::new(NotificationContent::Info(format!(
-                                    "{result:?}"
-                                ))))
-                        }
+                        Ok(result) => state.notifications.push(Notification::new(
+                            NotificationContent::CommandResult(format!("{result:?}")),
+                        )),
                         Err(err) => {
                             state.notifications.push(Notification::new(
                                 NotificationContent::RuneError(err.to_string()),
@@ -433,7 +441,7 @@ pub fn init_commands(config: &Option<ConfigFile>, state: &mut State) -> Vec<Comm
                 Arg {
                     name: "value".to_owned(),
                     optional: false,
-                    arg_type: ArgType::Any,
+                    arg_type: ArgType::String,
                     description: None,
                 },
             ],
@@ -563,6 +571,7 @@ pub fn handle_command(
 
     for command in commands.iter() {
         if command.names.contains(&name) {
+            // NOTE: Replacing all commands with runes will do this for free
             // TODO: Command arg validation
             // for arg in command.args {
             //     if !arg.arg_type.is_compatible(ArgType::from(arg)) {
@@ -583,7 +592,6 @@ pub fn handle_command(
     Ok(false)
 }
 
-// TODO: Read property values from a file à-la .vimrc
 pub fn init_properties() -> Vec<Property> {
     vec![
         Property {

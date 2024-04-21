@@ -28,7 +28,6 @@ command_arg_ty = {
   | "Number"
   | "Boolean"
   | "Axis"
-  | ("Struct" ~ "(" ~ identifier ~ ")")
 }
 command_arg_description = @{ (!"@" ~ ANY)+ }
 command_description = @{ (!"!command" ~ ANY)+ }

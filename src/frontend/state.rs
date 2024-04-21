@@ -80,9 +80,9 @@ impl RuneState {
 pub enum RuneCommandError {
     #[rune(constructor)]
     InvalidArgType {
-        #[rune(get)]
+        #[rune(get, set)]
         got: String,
-        #[rune(get)]
+        #[rune(get, set)]
         expected: ArgType,
     },
 }

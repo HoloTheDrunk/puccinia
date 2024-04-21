@@ -10,6 +10,7 @@ pub struct Notification {
 
 pub enum NotificationContent {
     Info(String),
+    CommandResult(String),
     RuneError(String),
     Error(Box<dyn AsRef<str>>),
 }

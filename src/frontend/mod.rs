@@ -571,8 +571,6 @@ fn ui(f: &mut Frame, state: &mut State) {
 }
 
 fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
-    state.debug = Some(format!("Notifications: {}", state.notifications.len()));
-
     let (max_width, max_height) = state.config.notification_max_size;
     let mut cum_height = 0; // °u°
     let now = Local::now();

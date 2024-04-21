@@ -553,7 +553,7 @@ pub fn handle_command(
         .collect::<Vec<String>>();
 
     if name == "h" || name == "help" {
-        state.tooltip = Some(if args.is_empty() {
+        state.tooltip = Some(if args.is_empty() || args.iter().all(String::is_empty) {
             Tooltip::Info(
                 commands
                     .iter()
@@ -563,7 +563,7 @@ pub fn handle_command(
         } else if let Some(command) = commands.iter().find(|c| c.names.contains(&args[0])) {
             Tooltip::Info(command.detail())
         } else {
-            Tooltip::Error(format!("Command not found: {}", args[0]))
+            Tooltip::Error(format!("Command not found: `{}`", args[0]))
         });
 
         return Ok(false);

@@ -94,5 +94,6 @@ bind history_accept <Enter>
 # Toggle heat
 command heat = heat:
   @visible: Boolean@
-  Toggle heat display outside of Running mode
+  Toggle heat display outside of Running mode.
+  This is exactly the same as running `set heat <visible>`
 !command

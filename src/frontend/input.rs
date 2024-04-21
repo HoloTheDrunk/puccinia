@@ -47,6 +47,8 @@ pub struct Keybindings {
 
     // Command mode
     pub submit_command: KeyEvent,
+    pub command_history_up: KeyEvent,
+    pub command_history_down: KeyEvent,
 
     // Visual mode
     pub yank: KeyEvent,
@@ -82,22 +84,22 @@ impl Default for Keybindings {
             delete_word: KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL),
 
             // Cursor movement
-            left: KeyEvent::new(KeyCode::Left, KeyModifiers::NONE),
-            down: KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
-            up: KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
-            right: KeyEvent::new(KeyCode::Right, KeyModifiers::NONE),
+            left: KeyEvent::new(KeyCode::Char('h'), KeyModifiers::NONE),
+            down: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE),
+            up: KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+            right: KeyEvent::new(KeyCode::Char('l'), KeyModifiers::NONE),
 
             // Grid expansion
-            expand_left: KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL),
-            expand_down: KeyEvent::new(KeyCode::Down, KeyModifiers::CONTROL),
-            expand_up: KeyEvent::new(KeyCode::Up, KeyModifiers::CONTROL),
-            expand_right: KeyEvent::new(KeyCode::Right, KeyModifiers::CONTROL),
+            expand_left: KeyEvent::new(KeyCode::Char('H'), KeyModifiers::NONE),
+            expand_down: KeyEvent::new(KeyCode::Char('J'), KeyModifiers::NONE),
+            expand_up: KeyEvent::new(KeyCode::Char('K'), KeyModifiers::NONE),
+            expand_right: KeyEvent::new(KeyCode::Char('L'), KeyModifiers::NONE),
 
             // Grid panning
-            pan_left: KeyEvent::new(KeyCode::Left, KeyModifiers::ALT),
-            pan_down: KeyEvent::new(KeyCode::Down, KeyModifiers::ALT),
-            pan_up: KeyEvent::new(KeyCode::Up, KeyModifiers::ALT),
-            pan_right: KeyEvent::new(KeyCode::Right, KeyModifiers::ALT),
+            pan_left: KeyEvent::new(KeyCode::Char('h'), KeyModifiers::CONTROL),
+            pan_down: KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL),
+            pan_up: KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            pan_right: KeyEvent::new(KeyCode::Char('l'), KeyModifiers::CONTROL),
 
             // Mode switch
             start_command: KeyEvent::new(KeyCode::Char(':'), KeyModifiers::NONE),
@@ -111,6 +113,8 @@ impl Default for Keybindings {
 
             // Command mode
             submit_command: KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            command_history_up: KeyEvent::new(KeyCode::Up, KeyModifiers::NONE),
+            command_history_down: KeyEvent::new(KeyCode::Down, KeyModifiers::NONE),
 
             // Visual mode
             yank: KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE),
@@ -136,7 +140,7 @@ impl Default for Keybindings {
 }
 
 impl Keybindings {
-    pub fn load(raw: &crate::config::ConfigFile) -> anyhow::Result<Self> {
+    pub fn load(raw: &super::ConfigFile) -> anyhow::Result<Self> {
         let mut keybindings = Keybindings::default();
 
         let mut invalid = Vec::new();
@@ -246,7 +250,7 @@ pub fn handle_events(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     if let Ok(true) = crossterm::event::poll(Duration::from_millis(0)) {
         match crossterm::event::read() {
             Ok(Event::Key(event)) => {
@@ -336,7 +340,7 @@ pub fn handle_events_history_mode(
     event: KeyEvent,
     hindex: usize,
     state: &mut State,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         history_back => {
             let new_index = (hindex + 1).min(state.history.inner.len());
@@ -371,7 +375,7 @@ pub fn handle_events_input_mode(
     mut string: String,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         backspace => {
             string.pop();
@@ -419,7 +423,7 @@ pub fn handle_events_running_mode(
     event: KeyEvent,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         stop_run | escape => {
             state.mode = EditorMode::Normal;
@@ -444,7 +448,7 @@ pub fn handle_events_visual_mode(
     event: KeyEvent,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     let EditorMode::Visual(start, end) = state.mode else {
         unreachable!()
     };
@@ -491,7 +495,7 @@ pub fn handle_events_insert_mode(
     event: KeyEvent,
     state: &mut State,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     map_binding!(event, state, match {
         delete_current if !(event.modifiers & KeyModifiers::SHIFT).is_empty() => {
             state.grid.set_current(CellValue::from(' '));
@@ -528,13 +532,13 @@ pub fn handle_events_command_mode(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     let exit_command_mode = |state: &mut State| {
         state.mode = state.previous_mode.clone().unwrap_or(EditorMode::Normal);
     };
 
     map_binding!(event, state, match {
-        up => {
+        command_history_up => {
             if !cmd.trim().is_empty() && state.command_history_index.is_none() {
                 state.command_history.push_front(cmd);
             }
@@ -549,7 +553,7 @@ pub fn handle_events_command_mode(
                 state.mode = EditorMode::Command(state.command_history[new_index].clone());
             }
         },
-        down => {
+        command_history_down => {
             if state.command_history_index == Some(0) {
                 state.command_history_index = None;
                 state.mode = EditorMode::Command(String::new());
@@ -607,7 +611,7 @@ fn handle_events_normal_mode(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     map_binding!(event, state, match {
         start_insert => {
             state.mode = EditorMode::Insert;

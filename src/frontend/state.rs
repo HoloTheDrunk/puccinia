@@ -1,12 +1,15 @@
-use std::collections::VecDeque;
-
-use super::Keybindings;
+use super::{
+    popup::{Notification, Tooltip},
+    ArgType, Keybindings,
+};
 
 use crate::grid::Grid;
 
-use {arboard::Clipboard, tui::style::Color};
+use std::{collections::VecDeque, sync::Arc};
 
-#[derive(Clone, Default, Debug)]
+use {arboard::Clipboard, ratatui::style::Color, rune::Any};
+
+#[derive(Clone, Default, Debug, Any)]
 pub struct Config {
     // Side area for run information
     pub run_area_width: u16,
@@ -14,11 +17,18 @@ pub struct Config {
     pub output_area_height: u16,
 
     // Editor display settings
+    #[rune(get, set)]
     pub heat: bool,
     pub lids: bool,
     pub sides: bool,
 
+    // Notifications list settings
+    pub notification_max_size: (u16, u16),
+    pub notification_capacity: u32,
+    pub notification_time: u32,
+
     // Running mode optimizations
+    #[rune(get, set)]
     pub live_output: bool,
 
     // Keybindings
@@ -48,18 +58,54 @@ impl RunAreaPosition {
     }
 }
 
+pub struct RuneState {
+    runtime: Arc<rune::runtime::RuntimeContext>,
+    unit: Arc<rune::Unit>,
+}
+
+impl RuneState {
+    pub fn new(runtime: rune::runtime::RuntimeContext, unit: rune::Unit) -> Self {
+        Self {
+            runtime: Arc::new(runtime),
+            unit: Arc::new(unit),
+        }
+    }
+
+    pub fn to_vm(&self) -> rune::Vm {
+        rune::Vm::new(self.runtime.clone(), self.unit.clone())
+    }
+}
+
+#[derive(Clone, Debug, Any)]
+pub enum RuneCommandError {
+    #[rune(constructor)]
+    InvalidArgType {
+        #[rune(get, set)]
+        got: String,
+        #[rune(get, set)]
+        expected: ArgType,
+    },
+}
+
+#[derive(Any)]
 pub struct State {
+    #[rune(get, set)]
     pub mode: EditorMode,
     pub previous_mode: Option<EditorMode>,
 
+    #[rune(get)]
     pub grid: Grid,
     pub stack: Vec<i32>,
     pub output: String,
     pub output_buffer: Option<String>,
 
+    #[rune(get)]
     pub tooltip: Option<Tooltip>,
+    pub notifications: Vec<Notification>,
+    #[rune(get)]
     pub config: Config,
 
+    #[rune(get)]
     pub history: GridHistory,
 
     pub command_history: VecDeque<String>,
@@ -68,6 +114,8 @@ pub struct State {
     pub clipboard: Clipboard,
 
     pub debug: Option<String>,
+
+    pub rune_state: Option<RuneState>,
 }
 
 impl State {
@@ -98,6 +146,7 @@ impl State {
     }
 }
 
+#[derive(Clone, Debug, Any)]
 pub struct GridHistory {
     pub inner: VecDeque<String>,
     pub max_size: usize,
@@ -112,7 +161,7 @@ impl GridHistory {
     }
 }
 
-#[derive(Clone, Default, Debug, PartialEq, Eq)]
+#[derive(Clone, Default, Debug, PartialEq, Eq, Any)]
 pub enum EditorMode {
     #[default]
     /// Mode for moving around efficiently and running commands
@@ -131,7 +180,7 @@ pub enum EditorMode {
     History(usize),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Any)]
 pub enum InputMode {
     Integer,
     ASCII,
@@ -148,13 +197,4 @@ impl From<&EditorMode> for Color {
             EditorMode::History(_) => Color::LightMagenta,
         }
     }
-}
-
-#[derive(Clone, Debug)]
-#[allow(unused)]
-pub enum Tooltip {
-    Input(InputMode, String),
-    Command(String),
-    Info(String),
-    Error(String),
 }

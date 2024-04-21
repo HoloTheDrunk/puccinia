@@ -16,12 +16,13 @@
   - [x] Custom keybindings
   - [x] Default config example
   - [x] Autosave
+- [x] Custom commands (scripting language + API)
 
 ## Roadmap
 
 In order of how willing I am to do them right now:
 
-- [ ] Custom commands (scripting language + API)
+- [ ] Documentation and examples
 - [ ] Funge-98 extensions (excluding fingerprints)
   - [ ] Stack stack
   - [ ] Concurrency

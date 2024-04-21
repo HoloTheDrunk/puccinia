@@ -1,6 +1,17 @@
-use crate::grid::span2d;
+use self::config::CommandBindingArg;
 
 use super::prelude::*;
+
+use command::config::CommandBinding;
+use rune::{ToValue, Value};
+
+use crate::grid::span2d;
+
+use {
+    itertools::Itertools,
+    rune::{Any, Source, Sources},
+    walkdir::WalkDir,
+};
 
 pub struct Interactions {
     pub commands: Vec<Command>,
@@ -8,11 +19,16 @@ pub struct Interactions {
 }
 
 pub struct Command {
-    pub names: Vec<&'static str>,
+    pub names: Vec<String>,
     pub args: Vec<Arg>,
-    pub description: &'static str,
+    pub description: Option<String>,
     pub handler: Box<
-        dyn Fn(Vec<String>, &mut State, &Interactions, &Sender<logic::Message>) -> AnyResult<bool>,
+        dyn Fn(
+            Vec<String>,
+            &mut State,
+            &Interactions,
+            &Sender<logic::Message>,
+        ) -> FrontendResult<bool>,
     >,
 }
 
@@ -21,12 +37,39 @@ impl ToString for Command {
         let names = self.names.join("|");
         let args = self.args.iter().map(ToString::to_string).join(" ");
         format!(
-            "{}{}{}: {}",
-            names,
+            "{bind}{}{args}: {description}",
             ["", " "][(args.len() > 0) as usize],
-            args,
-            self.description
+            bind = names,
+            args = args,
+            description = self
+                .description
+                .as_ref()
+                .map(String::as_str)
+                .unwrap_or("No description provided")
         )
+    }
+}
+
+impl Command {
+    pub fn detail(&self) -> String {
+        let header = format!(
+            "# {names}{}{description}\n\nArguments:\n",
+            ["", ": "][self.description.is_some() as usize],
+            names = self.names.join("|"),
+            description = self.description.clone().unwrap_or("".to_owned())
+        );
+
+        let args = self.args.iter().map(|arg| {
+            format!(
+                "\t- {name}: {ty}{optional}{description}",
+                name = arg.name,
+                ty = arg.arg_type.to_string(),
+                optional = ["", "?"][arg.optional as usize],
+                description = ""
+            )
+        });
+
+        std::iter::once(header).chain(args).join("\n")
     }
 }
 
@@ -34,7 +77,7 @@ pub struct Property {
     pub name: &'static str,
     pub args: Vec<Arg>,
     pub description: &'static str,
-    pub setter: Box<dyn Fn(&[String], &mut State, &Sender<logic::Message>) -> AnyResult<()>>,
+    pub setter: Box<dyn Fn(&[String], &mut State, &Sender<logic::Message>) -> FrontendResult<()>>,
 }
 
 impl ToString for Property {
@@ -50,47 +93,54 @@ impl ToString for Property {
     }
 }
 
+#[derive(Clone)]
 pub struct Arg {
-    pub name: &'static str,
+    pub name: String,
     pub optional: bool,
     pub arg_type: ArgType,
+    pub description: Option<String>,
+}
+
+impl From<CommandBindingArg> for Arg {
+    fn from(
+        CommandBindingArg {
+            name,
+            arg_type,
+            description,
+        }: CommandBindingArg,
+    ) -> Self {
+        Arg {
+            name,
+            optional: false,
+            arg_type,
+            description,
+        }
+    }
 }
 
 impl ToString for Arg {
     fn to_string(&self) -> String {
         let surround = [('<', '>'), ('[', ']')][self.optional as usize];
         format!(
-            "{}{}:{:?}{}",
-            surround.0, self.name, self.arg_type, surround.1
+            "{}{}:{}{}",
+            surround.0,
+            self.name,
+            self.arg_type.to_string(),
+            surround.1
         )
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Any)]
 pub enum ArgType {
+    #[rune(constructor)]
     String,
+    #[rune(constructor)]
     Number,
+    #[rune(constructor)]
     Boolean,
+    #[rune(constructor)]
     Axis,
-    Any,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum Axis {
-    X,
-    Y,
-}
-
-impl TryFrom<char> for Axis {
-    type Error = ();
-
-    fn try_from(value: char) -> Result<Self, Self::Error> {
-        match value {
-            'x' | 'X' => Ok(Axis::X),
-            'y' | 'Y' => Ok(Axis::Y),
-            _ => Err(()),
-        }
-    }
 }
 
 impl From<&str> for ArgType {
@@ -108,33 +158,205 @@ impl From<&str> for ArgType {
 }
 
 impl ArgType {
-    pub fn is_compatible(&self, other: Self) -> bool {
-        match self {
-            ArgType::String => true,
-            ArgType::Number => matches!(other, ArgType::Number),
-            ArgType::Boolean => matches!(other, ArgType::Boolean),
-            ArgType::Axis => matches!(other, ArgType::Axis),
-            ArgType::Any => true,
+    pub fn is_compatible(&self, other: &Self) -> bool {
+        match (self, other) {
+            (a, b) if a == b => true,
+            (ArgType::String, _) => true,
+            (ArgType::Boolean, ArgType::Number) => true,
+            _ => false,
         }
     }
 }
 
-pub fn init_commands() -> Vec<Command> {
-    vec![
+impl ToString for ArgType {
+    fn to_string(&self) -> String {
+        match self {
+            ArgType::String => "String",
+            ArgType::Number => "Number",
+            ArgType::Boolean => "Boolean",
+            ArgType::Axis => "Axis",
+        }
+        .to_owned()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Any)]
+pub enum Axis {
+    X,
+    Y,
+}
+
+impl TryFrom<char> for Axis {
+    type Error = ();
+
+    fn try_from(value: char) -> Result<Self, Self::Error> {
+        match value {
+            'x' | 'X' => Ok(Axis::X),
+            'y' | 'Y' => Ok(Axis::Y),
+            _ => Err(()),
+        }
+    }
+}
+
+pub fn load_rune_commands(config_path: Option<&Path>) -> anyhow::Result<Sources> {
+    let mut sources = Sources::new();
+
+    if let Some(path) = config_path.map(|p| p.join("commands")) {
+        for entry in WalkDir::new(path).into_iter().flatten() {
+            let file_name = entry.file_name().to_string_lossy();
+            let file_type = entry.file_type();
+
+            if file_type.is_file() && file_name.ends_with(".rn") {
+                Source::from_path(entry.path()).map(|source| sources.insert(source))??;
+            }
+        }
+    }
+
+    Ok(sources)
+}
+
+fn init_rune_commands(config: &ConfigFile, state: &mut State) -> Vec<Command> {
+    todo!()
+}
+
+impl From<CommandBinding> for Command {
+    fn from(
+        CommandBinding {
+            bind,
+            name,
+            args,
+            description,
+        }: CommandBinding,
+    ) -> Self {
+        let arg_count = args.len();
+        let converted_args = args
+            .iter()
+            .map(
+                |CommandBindingArg {
+                     name,
+                     arg_type,
+                     description,
+                 }| Arg {
+                    name: name.clone(),
+                    optional: false,
+                    arg_type: arg_type.clone(),
+                    description: description.clone(),
+                },
+            )
+            .collect::<Vec<Arg>>();
         Command {
-            names: vec!["q", "quit"],
+            names: vec![bind.clone()],
+            args: converted_args.clone(),
+            description: description.clone(),
+            handler: Box::new(move |passed_args, state, _interactions, _sender| {
+                if let Some(rune_state) = &state.rune_state {
+                    if passed_args.len() != arg_count {
+                        state
+                            .notifications
+                            .push(Notification::new(NotificationContent::Error(Box::new(
+                                format!(
+                                "Invalid number of arguments, got {} expected {}: {passed_args:?}",
+                                passed_args.len(),
+                                arg_count
+                            ),
+                            ))));
+                        return Ok(false);
+                    }
+
+                    let args = passed_args
+                        .into_iter()
+                        .enumerate()
+                        .map(|(index, arg)| match converted_args[index].arg_type {
+                            ArgType::String => arg.to_value().into_result().map(Some),
+                            ArgType::Number => {
+                                arg.parse::<f32>().map(rune::to_value).ok().transpose()
+                            }
+                            ArgType::Boolean => {
+                                arg.parse::<bool>().map(rune::to_value).ok().transpose()
+                            }
+                            ArgType::Axis => Axis::try_from(arg.chars().nth(0).unwrap())
+                                .map(rune::to_value)
+                                .ok()
+                                .transpose(),
+                        })
+                        .map(Result::ok)
+                        .map(Option::flatten)
+                        .collect::<Vec<Option<Value>>>();
+
+                    let args = if args.iter().any(Option::is_none) {
+                        state
+                            .notifications
+                            .push(Notification::new(NotificationContent::Error(Box::new(
+                                format!("Invalid arguments: {args:?}\n\
+                                        (`None` indicates a parsing error, you should check the command's expected argument types)"),
+                            ))));
+                        return Ok(false);
+                    } else {
+                        args.into_iter().map(Option::unwrap).collect::<Vec<Value>>()
+                    };
+
+                    match rune_state
+                        .to_vm()
+                        .call([name.as_str()], (&mut *state, args))
+                    {
+                        Ok(result) => state.notifications.push(Notification::new(
+                            NotificationContent::CommandResult(format!("{result:?}")),
+                        )),
+                        Err(err) => {
+                            state.notifications.push(Notification::new(
+                                NotificationContent::RuneError(err.to_string()),
+                            ));
+                        }
+                    };
+                } else {
+                    state
+                        .notifications
+                        .push(Notification::new(NotificationContent::Error(Box::new(
+                            "Runes not loaded",
+                        ))));
+                }
+                Ok(false)
+            }),
+        }
+    }
+}
+
+pub fn init_commands(config: &Option<ConfigFile>, state: &mut State) -> Vec<Command> {
+    let mut commands = Vec::new();
+
+    if let Some(config) = config.as_ref().filter(|_| state.rune_state.is_some()) {
+        state
+            .notifications
+            .push(Notification::new(NotificationContent::Info(
+                "Loading Rune commands".to_owned(),
+            )));
+        for command_binding in config.commands.iter().cloned() {
+            commands.push(Command::from(command_binding));
+        }
+    }
+
+    macro_rules! svec {
+        ($($lit:literal),*) => {
+            vec![$($lit.to_owned()),*]
+        };
+    }
+
+    commands.extend(vec![
+        Command {
+            names: svec!["q", "quit"],
             args: vec![],
-            description: "Quit the program",
+            description: Some("Quit the program".to_owned()),
             handler: Box::new(|_args, _state, _interactions, _sender| Ok(true)),
         },
         Command {
-            names: vec!["w", "write"],
+            names: svec!["w", "write"],
             args: vec![Arg {
-                name: "path",
+                name: "path".to_owned(),
                 optional: true,
                 arg_type: ArgType::String,
+                description: Some("Destination file to save into".to_owned()),
             }],
-            description: "Save the buffer to a given path",
+            description: Some("Save the buffer to a given path".to_owned()),
             handler: Box::new(|args, _state, _interactions, sender| {
                 let path = args[0].trim();
                 sender
@@ -146,13 +368,14 @@ pub fn init_commands() -> Vec<Command> {
             }),
         },
         Command {
-            names: vec!["x", "exit"],
+            names: svec!["x", "exit"],
             args: vec![Arg {
-                name: "path",
+                name: "path".to_owned(),
                 optional: true,
                 arg_type: ArgType::String,
+                description: Some("Destination path to save into".to_owned()),
             }],
-            description: "Save the buffer and quit the program",
+            description: Some("Save the buffer and quit the program".to_owned()),
             handler: Box::new(|args, _state, _interactions, sender| {
                 let path = args[0].trim();
                 sender
@@ -164,9 +387,9 @@ pub fn init_commands() -> Vec<Command> {
             }),
         },
         Command {
-            names: vec!["t", "trim"],
+            names: svec!["t", "trim"],
             args: vec![],
-            description: "Trim the grid on all sides",
+            description: Some("Trim the grid on all sides".to_owned()),
             handler: Box::new(|_args, state, _interactions, _sender| {
                 let trimmed = state.grid.trim();
 
@@ -182,9 +405,9 @@ pub fn init_commands() -> Vec<Command> {
             }),
         },
         Command {
-            names: vec!["r", "run"],
+            names: svec!["r", "run"],
             args: vec![],
-            description: "Start a run",
+            description: Some("Start a run".to_owned()),
             handler: Box::new(|_args, state, _interactions, sender| {
                 state.grid.set_cursor(0, 0).unwrap();
                 state.grid.set_cursor_dir(Direction::Right);
@@ -207,33 +430,36 @@ pub fn init_commands() -> Vec<Command> {
             }),
         },
         Command {
-            names: vec!["s", "set"],
+            names: svec!["s", "set"],
             args: vec![
                 Arg {
-                    name: "property",
+                    name: "property".to_owned(),
                     optional: false,
                     arg_type: ArgType::String,
+                    description: Some("Name of the property to set".to_owned()),
                 },
                 Arg {
-                    name: "value",
+                    name: "value".to_owned(),
                     optional: false,
-                    arg_type: ArgType::Any,
+                    arg_type: ArgType::String,
+                    description: None,
                 },
             ],
-            description: "Set a property (use ? for a list)",
+            description: Some("Set a property (use ? for a list)".to_owned()),
             handler: Box::new(|args, state, interactions, sender| {
                 handle_set_command(args.as_slice(), state, interactions, sender, true)?;
                 Ok(false)
             }),
         },
         Command {
-            names: vec!["rev"],
+            names: svec!["rev"],
             args: vec![Arg {
-                name: "axis",
+                name: "axis".to_owned(),
                 optional: true,
                 arg_type: ArgType::Axis,
+                description: Some("X or Y".to_owned()),
             }],
-            description: "Reverse selection (horizontally by default)",
+            description: Some("Reverse selection (horizontally by default)".to_owned()),
             handler: Box::new(|args, state, _interactions, _sender| {
                 let Some(EditorMode::Visual(start, end)) = state.previous_mode else {
                     return Err(Error::Command(CommandError::InvalidMode(String::from(
@@ -283,9 +509,9 @@ pub fn init_commands() -> Vec<Command> {
             }),
         },
         Command {
-            names: vec!["hdump"],
+            names: svec!["hdump"],
             args: vec![],
-            description: "Dump the history to the .hist folder",
+            description: Some("Dump the history to the .hist folder".to_owned()),
             handler: Box::new(|_args, state, _interactions, _sender| {
                 std::fs::create_dir(".hist").expect("Failed to create .hist folder");
                 for i in 0..state.history.inner.len() {
@@ -297,15 +523,17 @@ pub fn init_commands() -> Vec<Command> {
             }),
         },
         Command {
-            names: vec!["clear_heat"],
+            names: svec!["clear_heat"],
             args: vec![],
-            description: "Clear the grid's heat",
+            description: Some("Clear the grid's heat".to_owned()),
             handler: Box::new(|_args, state, _interactions, _sender| {
                 state.grid.clear_heat();
                 Ok(false)
             }),
         },
-    ]
+    ]);
+
+    commands
 }
 
 pub fn handle_command(
@@ -313,17 +541,10 @@ pub fn handle_command(
     state: &mut State,
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
-) -> AnyResult<bool> {
+) -> FrontendResult<bool> {
     let (name, args) = cmd.split_once(' ').unwrap_or((cmd, ""));
     let name = name.to_lowercase();
     let commands = &interactions.commands;
-
-    if name == "h" || name == "help" {
-        state.tooltip = Some(Tooltip::Info(
-            commands.iter().map(ToString::to_string).join("\n"),
-        ));
-        return Ok(false);
-    }
 
     let args = args
         .split(' ')
@@ -331,8 +552,26 @@ pub fn handle_command(
         .map(ToString::to_string)
         .collect::<Vec<String>>();
 
+    if name == "h" || name == "help" {
+        state.tooltip = Some(if args.is_empty() || args.iter().all(String::is_empty) {
+            Tooltip::Info(
+                commands
+                    .iter()
+                    .map(|c| format!("- {}", c.to_string()))
+                    .join("\n"),
+            )
+        } else if let Some(command) = commands.iter().find(|c| c.names.contains(&args[0])) {
+            Tooltip::Info(command.detail())
+        } else {
+            Tooltip::Error(format!("Command not found: `{}`", args[0]))
+        });
+
+        return Ok(false);
+    }
+
     for command in commands.iter() {
-        if command.names.contains(&name.as_ref()) {
+        if command.names.contains(&name) {
+            // NOTE: Replacing all commands with runes will do this for free
             // TODO: Command arg validation
             // for arg in command.args {
             //     if !arg.arg_type.is_compatible(ArgType::from(arg)) {
@@ -353,15 +592,15 @@ pub fn handle_command(
     Ok(false)
 }
 
-// TODO: Read property values from a file à-la .vimrc
 pub fn init_properties() -> Vec<Property> {
     vec![
         Property {
             name: "heat",
             args: vec![Arg {
-                name: "toggle",
+                name: "toggle".to_owned(),
                 optional: false,
                 arg_type: ArgType::Boolean,
+                description: None,
             }],
             description: "Heat toggle",
             setter: Box::new(|args, state, _sender| {
@@ -374,9 +613,10 @@ pub fn init_properties() -> Vec<Property> {
         Property {
             name: "live_output",
             args: vec![Arg {
-                name: "toggle",
+                name: "toggle".to_owned(),
                 optional: false,
                 arg_type: ArgType::Boolean,
+                description: None,
             }],
             description: "Live output toggle",
             setter: Box::new(|args, state, _sender| {
@@ -396,9 +636,10 @@ pub fn init_properties() -> Vec<Property> {
         Property {
             name: "heat_diffusion",
             args: vec![Arg {
-                name: "value",
+                name: "value".to_owned(),
                 optional: false,
                 arg_type: ArgType::Number,
+                description: None,
             }],
             description: "Heat diffusion per second",
             setter: Box::new(|args, _state, sender| {
@@ -413,9 +654,10 @@ pub fn init_properties() -> Vec<Property> {
         Property {
             name: "view_updates",
             args: vec![Arg {
-                name: "mode",
+                name: "mode".to_owned(),
                 optional: false,
                 arg_type: ArgType::String,
+                description: Some("View update mode (None, Partial, All)".to_owned()),
             }],
             description: "View update mode (None, Partial, All)",
             setter: Box::new(|args, _state, sender| {
@@ -430,9 +672,10 @@ pub fn init_properties() -> Vec<Property> {
         Property {
             name: "step_ms",
             args: vec![Arg {
-                name: "value",
+                name: "value".to_owned(),
                 optional: false,
                 arg_type: ArgType::Number,
+                description: None,
             }],
             description: "Added milliseconds of sleep between steps",
             setter: Box::new(|args, _state, sender| {
@@ -447,9 +690,10 @@ pub fn init_properties() -> Vec<Property> {
         Property {
             name: "cache_dir",
             args: vec![Arg {
-                name: "path",
+                name: "path".to_owned(),
                 optional: false,
                 arg_type: ArgType::String,
+                description: None,
             }],
             description: "Cache directory path",
             setter: Box::new(|args, state, _sender| {
@@ -460,9 +704,10 @@ pub fn init_properties() -> Vec<Property> {
         Property {
             name: "cache_dir_size",
             args: vec![Arg {
-                name: "size",
+                name: "size".to_owned(),
                 optional: false,
                 arg_type: ArgType::Number,
+                description: None,
             }],
             description: "Cache directory size in MB",
             setter: Box::new(|args, state, _sender| {
@@ -475,9 +720,10 @@ pub fn init_properties() -> Vec<Property> {
         Property {
             name: "autosave_interval",
             args: vec![Arg {
-                name: "interval",
+                name: "interval".to_owned(),
                 optional: false,
                 arg_type: ArgType::Number,
+                description: None,
             }],
             description: "Autosave interval in seconds",
             setter: Box::new(|args, state, _sender| {
@@ -494,7 +740,7 @@ fn update_logic_property(
     name: &str,
     value: &str,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     sender.send(logic::Message::UpdateProperty(
         name.to_owned(),
         value.to_owned(),
@@ -508,7 +754,7 @@ pub fn handle_set_command(
     interactions: &Interactions,
     sender: &Sender<logic::Message>,
     show_tooltip: bool,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     let properties = &interactions.properties;
 
     let qmark = String::from("?");

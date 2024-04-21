@@ -1,3 +1,5 @@
+use ratatui::text::Line;
+
 use crate::{
     cell::{Cell, CellValue, Direction},
     frontend::prelude::{EditorMode, State as FState},
@@ -11,15 +13,16 @@ use std::{
 
 use {
     itertools::intersperse,
-    tui::{
+    ratatui::{
         layout::Rect,
         style::{Color, Modifier, Style},
-        text::{Span, Spans},
+        text::Span,
         widgets::StatefulWidget,
     },
+    rune::Any,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Any)]
 pub struct Grid {
     width: usize,
     height: usize,
@@ -40,7 +43,8 @@ pub struct Grid {
 impl StatefulWidget for Grid {
     type State = FState;
 
-    fn render(self, area: Rect, buf: &mut tui::buffer::Buffer, state: &mut Self::State) {
+    // Don't touch this, it's a mess but it works.
+    fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer, state: &mut Self::State) {
         // let width = std::cmp::min(2 * self.width, area.width as usize - 2) as u32;
         let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;
 
@@ -113,15 +117,15 @@ impl StatefulWidget for Grid {
                 line.append(&mut spans);
                 line.push(right_side.clone());
 
-                Spans::from(line)
+                Line::from(line)
             })
             .enumerate()
             .for_each(|(index, line)| {
-                buf.set_spans(
+                buf.set_line(
                     area.left(),
                     area.top() + index as u16 + 1,
                     &line,
-                    line.0.len() as u16 + 2,
+                    line.width() as u16 + 2,
                 );
             });
 

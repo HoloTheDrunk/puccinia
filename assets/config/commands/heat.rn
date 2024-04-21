@@ -1,0 +1,3 @@
+pub fn heat(state, args) {
+    state.config.heat = args[0];
+}

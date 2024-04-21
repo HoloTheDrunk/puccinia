@@ -78,6 +78,8 @@ bind toggle_breakpoint b
 
 # Command mode
 bind submit_command <Enter>
+bind command_history_up <Up>
+bind command_history_down <Down>
 
 # Input mode (not insert mode, this is for input cells in running mode)
 bind submit_input <Enter>
@@ -86,3 +88,12 @@ bind submit_input <Enter>
 bind history_back u
 bind history_forward ^r
 bind history_accept <Enter>
+
+## Commands
+
+# Toggle heat
+command heat = heat:
+  @visible: Boolean@
+  Toggle heat display outside of Running mode.
+  This is exactly the same as running `set heat <visible>`
+!command

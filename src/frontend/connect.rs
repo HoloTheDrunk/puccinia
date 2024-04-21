@@ -16,7 +16,7 @@ pub enum Message {
     Input(InputMode),
 }
 
-pub fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> AnyResult<()> {
+pub fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> FrontendResult<()> {
     match receiver.try_recv() {
         Ok(msg) => match msg {
             Message::Load((grid, stack, breakpoints)) => {

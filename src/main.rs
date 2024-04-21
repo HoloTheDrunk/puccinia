@@ -1,5 +1,4 @@
 mod cell;
-mod config;
 mod frontend;
 mod grid;
 mod logic;

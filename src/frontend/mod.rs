@@ -1,37 +1,51 @@
 mod command;
+mod config;
 mod connect;
 mod input;
+mod popup;
 mod state;
 
 use std::{
     collections::VecDeque,
+    fmt::Debug,
     io::Stdout,
     path::Path,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        mpsc::{self, Receiver, Sender},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
-use chrono::{Datelike as _, Timelike as _};
+use chrono::{DateTime, Local, Utc};
+use ratatui::{
+    style::Stylize,
+    text::{Line, Text},
+    widgets::BorderType,
+};
 
-use crate::config::ConfigFile;
+use self::popup::{Notification, NotificationContent, Tooltip};
 
 use {
     crate::{cell::Direction, grid::Grid, logic},
     command::*,
+    config::ConfigFile,
     connect::*,
     input::*,
     state::*,
 };
 
 use {
+    ansi_to_tui::IntoText,
     arboard::Clipboard,
+    chrono::{Datelike as _, Timelike as _},
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         execute,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
     },
     itertools::Itertools,
-    tui::{
+    ratatui::{
         backend::{Backend, CrosstermBackend},
         layout::{Margin, Rect},
         style::{Color, Style},
@@ -39,10 +53,11 @@ use {
         widgets::{Block, Borders, Paragraph},
         Frame, Terminal,
     },
+    rune::{termcolor::Buffer, ContextError, Diagnostics, Module},
 };
 
 pub mod prelude {
-    pub use super::{command::*, connect::*, input::*, state::*, *};
+    pub use super::{command::*, connect::*, popup::*, state::*, *};
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -73,9 +88,12 @@ pub enum CommandError {
     InvalidMode(String),
 }
 
-type AnyResult<T> = anyhow::Result<T, Error>;
+type FrontendResult<T> = anyhow::Result<T, Error>;
 
-pub(crate) fn run(receiver: Receiver<Message>, sender: Sender<logic::Message>) -> AnyResult<()> {
+pub(crate) fn run(
+    receiver: Receiver<Message>,
+    sender: Sender<logic::Message>,
+) -> anyhow::Result<()> {
     let mut terminal = setup_terminal()?;
 
     let res = wrapper(&mut terminal, receiver, &sender);
@@ -89,24 +107,33 @@ fn wrapper<B: Backend>(
     terminal: &mut Terminal<B>,
     receiver: Receiver<Message>,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> anyhow::Result<()> {
     let load_start = std::time::Instant::now();
 
-    let loaded_config = {
-        let path = std::env::var("PUCCINIA_CONFIG_PATH").unwrap_or(format!(
-            "{}/.puccirc",
-            std::env::var("HOME").unwrap_or(".".to_owned())
-        ));
-        (path.clone(), ConfigFile::try_from(Path::new(path.as_str())))
-    };
-    let (path, config_file) = match loaded_config {
-        (path, Ok(config)) => (path, Some(config)),
-        (path, Err(_)) => (path, None),
+    let mut errors = Vec::new();
+    let mut log_error = |msg: &str, err: &anyhow::Error| errors.push(format!("{msg}: {err:?}"));
+
+    let (path, expanded_path, config_file) = {
+        let puccinia_config_path = std::env::var("PUCCINIA_CONFIG_PATH");
+        let dir_path = puccinia_config_path
+            .or(std::env::var("HOME"))
+            .unwrap_or(".".to_owned());
+        let expanded_path = shellexpand::tilde(&dir_path).to_string();
+        let config_path = format!("{}/config.pucci", expanded_path);
+
+        (
+            dir_path.clone(),
+            expanded_path.clone(),
+            ConfigFile::try_from(Path::new(config_path.as_str())).ok(),
+        )
     };
 
-    let (bindings, binding_error) = match config_file.as_ref().map(Keybindings::load).transpose() {
-        Ok(opt) => (opt, None),
-        Err(err) => (None, Some(err)),
+    let (config_path, bindings) = match config_file.as_ref().map(Keybindings::load).transpose() {
+        Ok(opt) => (Some(Path::new(expanded_path.as_str())), opt),
+        Err(err) => {
+            log_error("Failed to load keybindings", &err);
+            (None, None)
+        }
     };
 
     let mut state = State {
@@ -120,6 +147,10 @@ fn wrapper<B: Backend>(
             heat: true,
             lids: true,
             sides: true,
+
+            notification_max_size: (50, 5),
+            notification_capacity: 64,
+            notification_time: 15,
 
             live_output: true,
 
@@ -135,65 +166,125 @@ fn wrapper<B: Backend>(
         output: String::new(),
         output_buffer: None,
         tooltip: None,
+        notifications: Vec::new(),
         command_history: VecDeque::new(),
         command_history_index: None,
         clipboard: Clipboard::new()?,
         debug: None,
+        rune_state: None,
     };
+
+    if let Ok(mut sources) = load_rune_commands(config_path).inspect_err(|err| {
+        state
+            .notifications
+            .push(Notification::new(NotificationContent::Info(format!(
+                "Custom command loading error: {err:?}"
+            ))))
+    }) {
+        let command_api_module = build_command_api_module()?;
+
+        let mut context = rune_modules::default_context()?;
+        context
+            .install(command_api_module)
+            .expect("Failed to install Rune API module");
+
+        let mut diagnostics = Diagnostics::new();
+
+        let result = rune::prepare(&mut sources)
+            .with_context(&context)
+            .with_diagnostics(&mut diagnostics)
+            .build();
+
+        if !diagnostics.is_empty() {
+            let mut buffer = Buffer::no_color();
+            diagnostics
+                .emit(&mut buffer, &sources)
+                .expect("Failed to emit Rune diagnostics");
+            state
+                .notifications
+                .push(Notification::new(NotificationContent::RuneError(
+                    String::from_utf8_lossy(buffer.as_slice()).to_string(),
+                )));
+        } else {
+            state.rune_state = Some(RuneState::new(
+                context.runtime().expect("Failed to build Rune runtime"),
+                result.expect("Failed to build Rune unit"),
+            ));
+        }
+    }
 
     // Keeping them separate for simplicity's sake as commands need to mutably borrow the state.
     let interactions = Interactions {
-        commands: init_commands(),
+        commands: init_commands(&config_file, &mut state),
         properties: init_properties(),
     };
 
-    if let Some(err) = binding_error {
-        state.tooltip = Some(Tooltip::Error(format!(
-            "Failed to load keybindings: {}",
-            err
-        )));
-    } else {
-        match config_file {
-            // Apply properties from the config file
-            Some(content) => {
-                let errors = content
-                    .sets
-                    .iter()
-                    .flat_map(|(name, args)| {
-                        let args = std::iter::once(name.to_owned())
-                            .chain(args.split_whitespace().map(str::to_owned))
-                            .collect::<Vec<String>>();
+    match config_file {
+        // Apply properties from the config file
+        Some(content) => {
+            let errors = content
+                .sets
+                .iter()
+                .flat_map(|(name, args)| {
+                    let args = std::iter::once(name.to_owned())
+                        .chain(args.split_whitespace().map(str::to_owned))
+                        .collect::<Vec<String>>();
 
-                        if let Err(e) = handle_set_command(
-                            args.as_slice(),
-                            &mut state,
-                            &interactions,
-                            sender,
-                            true,
-                        ) {
-                            Some(format!("Failed to apply config: {}", e))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect::<Vec<String>>();
+                    if let Err(e) =
+                        handle_set_command(args.as_slice(), &mut state, &interactions, sender, true)
+                    {
+                        Some(format!("Failed to apply config: {}", e))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<String>>();
 
-                if errors.len() > 0 {
-                    state.tooltip = Some(Tooltip::Error(errors.join("\n")));
-                } else {
-                    state.tooltip = Some(Tooltip::Info(format!(
-                        "Loaded config from {path} in {}ms",
-                        (std::time::Instant::now() - load_start).as_millis()
-                    )))
-                }
+            state
+                .notifications
+                .push(Notification::new(NotificationContent::Info(format!(
+                    "Loaded config from {path} in {}ms",
+                    (std::time::Instant::now() - load_start).as_millis()
+                ))));
+
+            for error in errors {
+                state
+                    .notifications
+                    .push(Notification::new(NotificationContent::Error(Box::new(
+                        error,
+                    ))));
             }
-            None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
-        };
-    }
+        }
+        None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
+    };
 
     main_loop(terminal, &mut state, interactions, &receiver, &sender)?;
 
     Ok(())
+}
+
+fn build_command_api_module() -> Result<Module, ContextError> {
+    let mut module = Module::new();
+
+    macro_rules! export_types {
+        ($($ty:ty),* $(,)?) => {
+            $(module.ty::<$ty>()?;)*
+        }
+    }
+
+    export_types! {
+        State,
+        Config,
+        Grid,
+        GridHistory,
+        RuneCommandError,
+        ArgType,
+        Tooltip,
+        EditorMode,
+        InputMode,
+    };
+
+    Ok(module)
 }
 
 fn setup_terminal() -> std::io::Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -234,7 +325,7 @@ fn main_loop<B: Backend>(
     interactions: Interactions,
     receiver: &Receiver<Message>,
     sender: &Sender<logic::Message>,
-) -> AnyResult<()> {
+) -> FrontendResult<()> {
     let mut last_frame = Instant::now();
     let target_fps = 30;
     let target_delta = Duration::from_millis(1000 / target_fps);
@@ -318,7 +409,7 @@ fn autosave(state: &mut State, last_autosave: &mut Instant) {
 
         let now = chrono::Local::now();
         let path = Path::new(state.config.cache_directory.as_str()).join(format!(
-            "autosave_{}-{}-{}_{}-{}-{}.pucc",
+            "autosave_{}-{}-{}_{}-{}-{}.befunge",
             now.year(),
             now.month(),
             now.day(),
@@ -338,7 +429,7 @@ fn autosave(state: &mut State, last_autosave: &mut Instant) {
     }
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
+fn ui(f: &mut Frame, state: &mut State) {
     let frame_size = f.size();
 
     let mut grid_area = frame_size.clone();
@@ -476,9 +567,108 @@ fn ui<B: Backend>(f: &mut Frame<B>, state: &mut State) {
     }
 
     render_tooltip(f, grid_area, state);
+    render_notifications(f, grid_area, state);
 }
 
-fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
+fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
+    state.debug = Some(format!("Notifications: {}", state.notifications.len()));
+
+    let (max_width, max_height) = state.config.notification_max_size;
+    let mut cum_height = 0; // °u°
+    let now = Local::now();
+    for Notification {
+        created_at,
+        content,
+    } in state
+        .notifications
+        .iter()
+        .filter(|n| (now - n.created_at).num_seconds() < state.config.notification_time as i64)
+        .rev()
+    {
+        if cum_height > grid_area.height - state.config.notification_max_size.1 - 2 {
+            break;
+        }
+
+        let (title, content, border_style, style) = match content {
+            NotificationContent::Info(string) => (
+                "Info",
+                string.as_str(),
+                Style::reset().fg(Color::Green),
+                Style::reset(),
+            ),
+            NotificationContent::CommandResult(result) => (
+                "Command result",
+                result.as_str(),
+                Style::reset().fg(Color::LightGreen),
+                Style::reset(),
+            ),
+            NotificationContent::RuneError(err) => {
+                ("Rune Error", err.as_str(), Style::reset(), Style::reset())
+            }
+            NotificationContent::Error(err) => (
+                "Error",
+                (**err).as_ref(),
+                Style::reset().fg(Color::Red),
+                Style::reset().fg(Color::Red),
+            ),
+        };
+
+        // Attempt to apply ANSI color escape codes, otherwise default to raw print
+        let text = content.into_text().unwrap_or(Text::from(content));
+
+        let text_width = text
+            .iter()
+            .take(max_height as usize)
+            .map(Line::width)
+            .max()
+            .unwrap_or(max_width as usize)
+            // TODO: hard wrap lines like for tooltips
+            // .min(max_width as usize) as u16;
+            .max(title.len() + 2)
+            .min(grid_area.width as usize) as u16;
+
+        let total_height = text.height().min(max_height as usize) as u16 + 2;
+        cum_height += total_height;
+
+        let text_margin = Margin::new(2, 1);
+
+        let area = Rect {
+            x: grid_area.right() - text_width - text_margin.horizontal * 2, // offset for the borders
+            y: grid_area.bottom() - cum_height,
+            width: text_width + text_margin.horizontal * 2,
+            height: total_height,
+        };
+
+        // Frame
+        frame.render_widget(
+            Block::new()
+                .title(title)
+                .borders(Borders::ALL)
+                .border_style(border_style.bold())
+                .border_type(BorderType::Plain),
+            area,
+        );
+
+        // Content
+        frame.render_widget(
+            Paragraph::new(text).style(style),
+            area.inner(&Margin::new(2, 1)),
+        );
+
+        // Progress bar
+        let progress_bar_width = area.width as usize - 2 - title.len();
+        let progress = (progress_bar_width as f32 * (now - created_at).num_seconds() as f32
+            / state.config.notification_time as f32) as usize;
+        frame.buffer_mut().set_string(
+            area.left() + title.len() as u16 + 1,
+            area.top(),
+            format!("{}╉", "━".repeat(progress_bar_width - progress - 1)),
+            Style::default(),
+        );
+    }
+}
+
+fn render_tooltip(frame: &mut Frame, grid_area: Rect, state: &State) {
     if let Some(tooltip) = state.tooltip.clone() {
         let (title, content, style) = match tooltip {
             Tooltip::Input(mode, input) => (
@@ -500,7 +690,11 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
             .map(str::trim)
             .flat_map(|s| {
                 s.chars()
-                    .chunks(area.width as usize - 10)
+                    .chunks(
+                        grid_area.width as usize
+                            - state.config.notification_max_size.0 as usize
+                            - 2,
+                    )
                     .into_iter()
                     .map(|chunk| chunk.collect::<String>())
                     .collect::<Vec<String>>()
@@ -508,8 +702,8 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
             .collect::<Vec<String>>();
 
         let command_area = Rect {
-            x: area.left(),
-            y: area.bottom() - 2 - lines.len().max(1) as u16,
+            x: grid_area.left(),
+            y: grid_area.bottom() - 2 - lines.len().max(1) as u16,
             width: (lines.iter().map(String::len).max().unwrap_or(0) as u16)
                 .max(title.len() as u16)
                 + 4,
@@ -526,10 +720,7 @@ fn render_tooltip<B: Backend>(frame: &mut Frame<B>, area: Rect, state: &State) {
 
         frame.render_widget(
             Paragraph::new(lines.join("\n").clone()).style(style),
-            command_area.inner(&Margin {
-                vertical: 1,
-                horizontal: 2,
-            }),
+            command_area.inner(&Margin::new(2, 1)),
         );
     }
 }

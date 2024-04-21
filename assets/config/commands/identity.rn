@@ -1,7 +1,0 @@
-pub fn identity(state, args) {
-    if args.len() > 0 {
-        Some((args[0], args[0] is bool))
-    } else {
-        None
-    }
-}

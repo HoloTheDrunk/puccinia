@@ -24,7 +24,7 @@ The `befunge` folder contains a couple examples of Befunge programs.
 
 ### Befunge
 
-If you'new to Befunge, the [Esolang wiki](https://esolangs.org/wiki/Befunge) is a great source of information and simple examples.
+If you're new to Befunge, the [Esolang wiki](https://esolangs.org/wiki/Befunge) is a great source of information and simple examples.
 
 ### Puccinia
 

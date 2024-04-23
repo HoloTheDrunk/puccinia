@@ -37,6 +37,12 @@ Settings and keybinds can be edited in your `config.pucci`.
 Custom [Rune](https://github.com/rune-rs/rune) commands can be defined by adding them to the `config/commands` folder and "linking" them in the `config.pucci` (see example at the end of the provided default config).
 Custom [Rune](https://github.com/rune-rs/rune) commands must always take a `State` as first parameter and a vector of all the arguments passed by the user as a second parameter. Type-checking is done on function call based on the function documentation in the `config.pucci` so you don't have to worry about it.
 
+Here's a short gif demonstrating these steps:
+
+<p align="center">
+  <img src="./.github/vhs/rune.gif" alt="Rune custom command showcase">
+</p>
+
 ## Features
 
 - [x] 2D grid-based editor

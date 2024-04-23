@@ -24,19 +24,25 @@ use {
 
 #[derive(Clone, Debug, Any)]
 pub struct Grid {
+    #[rune(get)]
     width: usize,
+    #[rune(get)]
     height: usize,
 
     pub lids: char,
     pub sides: char,
     pub corners: Option<[char; 4]>,
 
+    #[rune(get, set)]
     cursor: (usize, usize),
+    #[rune(get, set)]
     cursor_direction: Direction,
     last_move: Instant,
 
     pan: (usize, usize),
 
+    // TODO: github.com/rune-rs/rune/issues/693
+    // #[rune(get, set)]
     inner: VecDeque<VecDeque<Cell>>,
 }
 
@@ -526,7 +532,6 @@ impl Grid {
         }
     }
 
-    #[inline]
     /// Get cell value at position
     pub fn get(&self, x: usize, y: usize) -> Cell {
         self.inner.get(y).unwrap()[x]

@@ -272,6 +272,12 @@ fn build_command_api_module() -> Result<Module, ContextError> {
         }
     }
 
+    // macro_rules! export_functions {
+    //     ($($fn:ident),* $(,)?) => {
+    //         $(module.function(stringify!($fn), $fn).build()?;)*
+    //     }
+    // }
+
     export_types! {
         State,
         Config,
@@ -283,6 +289,9 @@ fn build_command_api_module() -> Result<Module, ContextError> {
         EditorMode,
         InputMode,
     };
+
+    // TODO: Figure out how to do this without undefining the Rust version
+    // module.function_meta(Grid::get)?;
 
     Ok(module)
 }

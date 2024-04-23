@@ -93,19 +93,19 @@ pub struct State {
     pub mode: EditorMode,
     pub previous_mode: Option<EditorMode>,
 
-    #[rune(get)]
+    #[rune(get, set)]
     pub grid: Grid,
     pub stack: Vec<i32>,
     pub output: String,
     pub output_buffer: Option<String>,
 
-    #[rune(get)]
+    #[rune(get, set)]
     pub tooltip: Option<Tooltip>,
     pub notifications: Vec<Notification>,
-    #[rune(get)]
+    #[rune(get, set)]
     pub config: Config,
 
-    #[rune(get)]
+    #[rune(get, set)]
     pub history: GridHistory,
 
     pub command_history: VecDeque<String>,
@@ -165,24 +165,33 @@ impl GridHistory {
 pub enum EditorMode {
     #[default]
     /// Mode for moving around efficiently and running commands
+    #[rune(constructor)]
     Normal,
     /// Command input mode
-    Command(String),
+    #[rune(constructor)]
+    Command(#[rune(get)] String),
     /// Text selection mode
-    Visual((usize, usize), (usize, usize)),
+    #[rune(constructor)]
+    Visual(#[rune(get)] (usize, usize), #[rune(get)] (usize, usize)),
     /// Text insertion mode
+    #[rune(constructor)]
     Insert,
     /// Running state
+    #[rune(constructor)]
     Running,
     /// Interactive input mode (& and ~)
-    Input(InputMode, String),
+    #[rune(constructor)]
+    Input(#[rune(get)] InputMode, #[rune(get)] String),
     /// Grid history browsing mode
-    History(usize),
+    #[rune(constructor)]
+    History(#[rune(get)] usize),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Any)]
 pub enum InputMode {
+    #[rune(constructor)]
     Integer,
+    #[rune(constructor)]
     ASCII,
 }
 

@@ -1,3 +1,5 @@
+use rune::Any;
+
 use crate::frontend::prelude::Config;
 
 use {
@@ -9,7 +11,7 @@ use {
 };
 
 /// Represents a single cell of the grid.
-#[derive(Clone, Debug, Default, Copy)]
+#[derive(Clone, Debug, Default, Copy, Any)]
 pub struct Cell {
     /// The content of the cell.
     pub value: CellValue,
@@ -35,18 +37,35 @@ impl From<char> for Cell {
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Clone, Debug, Default, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, Copy, PartialEq, Eq, Any)]
 pub enum CellValue {
+    #[rune(constructor)]
     #[default]
     Empty,
-    Op(Operator),
-    Dir(Direction),
-    If(IfDir),
+
+    #[rune(constructor)]
+    Op(#[rune(get)] Operator),
+
+    #[rune(constructor)]
+    Dir(#[rune(get)] Direction),
+
+    #[rune(constructor)]
+    If(#[rune(get)] IfDir),
+
+    #[rune(constructor)]
     StringMode,
+
+    #[rune(constructor)]
     Bridge,
+
+    #[rune(constructor)]
     End,
-    Number(u32),
-    Char(char),
+
+    #[rune(constructor)]
+    Number(#[rune(get)] u32),
+
+    #[rune(constructor)]
+    Char(#[rune(get)] char),
 }
 
 impl From<char> for CellValue {
@@ -115,12 +134,19 @@ impl Cell {
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Any)]
 pub enum Operator {
-    Nullary(NullaryOperator),
-    Unary(UnaryOperator),
-    Binary(BinaryOperator),
-    Ternary(TernaryOperator),
+    #[rune(constructor)]
+    Nullary(#[rune(get)] NullaryOperator),
+
+    #[rune(constructor)]
+    Unary(#[rune(get)] UnaryOperator),
+
+    #[rune(constructor)]
+    Binary(#[rune(get)] BinaryOperator),
+
+    #[rune(constructor)]
+    Ternary(#[rune(get)] TernaryOperator),
 }
 
 impl TryFrom<char> for Operator {
@@ -240,13 +266,22 @@ char_mapping! {
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Default, PartialEq, Clone, Debug, Copy, Eq)]
+#[derive(Default, PartialEq, Clone, Debug, Copy, Eq, Any)]
 pub enum Direction {
+    #[rune(constructor)]
     Up,
+
+    #[rune(constructor)]
     Down,
+
+    #[rune(constructor)]
     Left,
+
+    #[rune(constructor)]
     #[default]
     Right,
+
+    #[rune(constructor)]
     Random,
 }
 
@@ -296,45 +331,74 @@ impl From<Direction> for (i32, i32) {
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Any)]
 pub enum NullaryOperator {
+    #[rune(constructor)]
     Integer,
+    #[rune(constructor)]
     Ascii,
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Any)]
 pub enum UnaryOperator {
+    #[rune(constructor)]
     Negate,
+
+    #[rune(constructor)]
     Duplicate,
+
+    #[rune(constructor)]
     Pop,
+
+    #[rune(constructor)]
     WriteNumber,
+
+    #[rune(constructor)]
     WriteASCII,
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Any)]
 pub enum BinaryOperator {
+    #[rune(constructor)]
     Greater,
+
+    #[rune(constructor)]
     Add,
+
+    #[rune(constructor)]
     Subtract,
+
+    #[rune(constructor)]
     Multiply,
+
+    #[rune(constructor)]
     Divide,
+
+    #[rune(constructor)]
     Modulo,
+
+    #[rune(constructor)]
     Swap,
+
+    #[rune(constructor)]
     Get,
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Any)]
 pub enum TernaryOperator {
+    #[rune(constructor)]
     Put,
 }
 
 #[cfg_attr(test, derive(Hash))]
-#[derive(Clone, Debug, Copy, PartialEq, Eq)]
+#[derive(Clone, Debug, Copy, PartialEq, Eq, Any)]
 pub enum IfDir {
+    #[rune(constructor)]
     Horizontal,
+    #[rune(constructor)]
     Vertical,
 }
 

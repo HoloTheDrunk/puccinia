@@ -230,13 +230,9 @@ fn wrapper<B: Backend>(
                         .chain(args.split_whitespace().map(str::to_owned))
                         .collect::<Vec<String>>();
 
-                    if let Err(e) =
-                        handle_set_command(args.as_slice(), &mut state, &interactions, sender, true)
-                    {
-                        Some(format!("Failed to apply config: {}", e))
-                    } else {
-                        None
-                    }
+                    handle_set_command(args.as_slice(), &mut state, &interactions, sender, true)
+                        .err()
+                        .map(|err| format!("Failed to apply config: {err}"))
                 })
                 .collect::<Vec<String>>();
 
@@ -255,7 +251,11 @@ fn wrapper<B: Backend>(
                     ))));
             }
         }
-        None => state.tooltip = Some(Tooltip::Info("Loaded default config".to_owned())),
+        None => state
+            .notifications
+            .push(Notification::new(NotificationContent::Info(
+                "Loaded default config".to_owned(),
+            ))),
     };
 
     main_loop(terminal, &mut state, interactions, &receiver, &sender)?;
@@ -311,9 +311,7 @@ fn restore_terminal<B: Backend + std::io::Write>(
     mut terminal: Terminal<B>,
     sender: &Sender<logic::Message>,
 ) -> std::io::Result<()> {
-    if sender.send(logic::Message::Kill).is_err() {
-        // Ignore already killed logic thread
-    }
+    let _ = sender.send(logic::Message::Kill);
 
     disable_raw_mode()?;
 

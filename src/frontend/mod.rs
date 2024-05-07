@@ -20,6 +20,7 @@ use std::{
 use chrono::{DateTime, Local, Utc};
 use ratatui::{
     style::Stylize,
+    symbols::{self, border, line},
     text::{Line, Text},
     widgets::BorderType,
 };
@@ -650,12 +651,22 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
         };
 
         // Frame
+        let rounded = line::ROUNDED;
+        let borders = border::Set {
+            top_right: rounded.vertical_left,
+            bottom_left: [rounded.bottom_left, rounded.horizontal_up]
+                [(cum_height == total_height) as usize],
+            bottom_right: [rounded.vertical_left, rounded.bottom_right]
+                [(cum_height == total_height) as usize],
+            ..border::ROUNDED
+        };
+
         frame.render_widget(
             Block::new()
                 .title(title)
                 .borders(Borders::ALL)
                 .border_style(border_style.bold())
-                .border_type(BorderType::Plain),
+                .border_set(borders),
             area,
         );
 
@@ -720,10 +731,17 @@ fn render_tooltip(frame: &mut Frame, grid_area: Rect, state: &State) {
             height: lines.len().max(1) as u16 + 2,
         };
 
+        let borders = border::Set {
+            top_left: line::ROUNDED.vertical_right,
+            bottom_right: line::ROUNDED.horizontal_up,
+            ..border::ROUNDED
+        };
+
         frame.render_widget(
             Block::default()
                 .title(title)
                 .borders(Borders::ALL)
+                .border_set(borders)
                 .style(style),
             command_area,
         );

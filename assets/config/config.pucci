@@ -97,3 +97,8 @@ command heat = heat:
   Toggle heat display outside of Running mode.
   This is exactly the same as running `set heat <visible>`
 !command
+
+# Get character under cursor
+command get_current_char = get_current_char:
+  Get the char under the cursor.
+!command

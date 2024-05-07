@@ -1,4 +1,5 @@
 use ratatui::text::Line;
+use rune::{ContextError, Module};
 
 use crate::{
     cell::{Cell, CellValue, Direction},
@@ -240,6 +241,7 @@ impl Grid {
         }
     }
 
+    #[rune::function(keep)]
     pub fn load_values(&mut self, grid: String) {
         self.clear_values();
 
@@ -248,6 +250,7 @@ impl Grid {
         self.trim();
     }
 
+    #[rune::function(keep)]
     pub fn load_breakpoints(&mut self, breakpoints: Vec<(usize, usize)>) {
         self.clear_breakpoints();
         breakpoints
@@ -257,6 +260,7 @@ impl Grid {
 
     /// Adds a new column to the left side of the grid.
     /// Resizes grid.
+    #[rune::function(keep)]
     pub fn prepend_column(&mut self) {
         self.width += 1;
 
@@ -267,6 +271,7 @@ impl Grid {
 
     /// Adds a new column to the right side of the grid.
     /// Resizes grid.
+    #[rune::function(keep)]
     pub fn append_column(&mut self) {
         self.width += 1;
 
@@ -393,6 +398,7 @@ impl Grid {
 
     /// Moves cursor by an offset, possibly extending the grid to the right. Returns whether or not
     /// the cursor was wrapped around the grid.
+    #[rune::function(keep)]
     pub fn move_cursor(&mut self, dir: Direction, update_dir: bool, resize: bool) -> bool {
         if update_dir {
             self.cursor_direction = dir;
@@ -444,6 +450,7 @@ impl Grid {
     }
 
     /// Sets current cursor position
+    #[rune::function(keep)]
     pub fn set_cursor(&mut self, x: usize, y: usize) -> Result<(), (usize, usize)> {
         self.last_move = Instant::now();
 
@@ -457,23 +464,28 @@ impl Grid {
     }
 
     /// Gets current cursor position
+    #[rune::function(keep)]
     pub fn get_cursor(&self) -> (usize, usize) {
         self.cursor
     }
 
+    #[rune::function(keep)]
     pub fn get_cursor_dir(&self) -> Direction {
         self.cursor_direction
     }
 
+    #[rune::function(keep)]
     pub fn set_cursor_dir(&mut self, dir: Direction) {
         self.cursor_direction = dir;
     }
 
     /// Returns size tuple
+    #[rune::function(keep)]
     pub fn size(&self) -> (usize, usize) {
         (self.width, self.height)
     }
 
+    #[rune::function(keep)]
     pub fn pan(&mut self, dir: Direction) {
         match dir {
             Direction::Up => self.pan = (self.pan.0, self.pan.1.saturating_sub(1)),
@@ -519,11 +531,13 @@ impl Grid {
     }
 
     /// Completely clears grid
+    #[rune::function(keep)]
     pub fn clear(&mut self) {
         self.inner = vec![vec![CellValue::Empty.into(); self.width].into(); self.height].into();
     }
 
     /// Clears all cell values, keeping breakpoint and heat information
+    #[rune::function(keep)]
     pub fn clear_values(&mut self) {
         for line in &mut self.inner {
             for cell in line {
@@ -533,28 +547,33 @@ impl Grid {
     }
 
     /// Get cell value at position
+    #[rune::function(keep)]
     pub fn get(&self, x: usize, y: usize) -> Cell {
         self.inner.get(y).unwrap()[x]
     }
 
     /// Get cell value at current position
+    #[rune::function(keep)]
     pub fn get_current(&self) -> Cell {
         let (x, y) = self.cursor;
         self.get(x, y)
     }
 
-    #[inline]
     /// Set cell at position to desired value
+    #[inline]
+    #[rune::function(keep)]
     pub fn set(&mut self, x: usize, y: usize, val: CellValue) {
         self.inner.get_mut(y).unwrap()[x].value = val;
     }
 
     /// Set cell under cursor to desired value
+    #[rune::function(keep)]
     pub fn set_current(&mut self, val: CellValue) {
         let (x, y) = self.cursor;
         self.set(x, y, val);
     }
 
+    #[rune::function(keep)]
     pub fn get_breakpoints(&self) -> Vec<(usize, usize)> {
         self.inner
             .iter()
@@ -568,18 +587,21 @@ impl Grid {
             .collect::<Vec<_>>()
     }
 
-    #[inline]
     /// Toggle breakpoint at position
+    #[inline]
+    #[rune::function(keep)]
     pub fn toggle_breakpoint(&mut self, x: usize, y: usize) {
         self.inner.get_mut(y).unwrap()[x].is_breakpoint = !self.get(x, y).is_breakpoint;
     }
 
     /// Toggle breakpoint under cursor
+    #[rune::function(keep)]
     pub fn toggle_current_breakpoint(&mut self) {
         let (x, y) = self.cursor;
         self.toggle_breakpoint(x, y);
     }
 
+    #[rune::function(keep)]
     pub fn clear_breakpoints(&mut self) {
         for line in &mut self.inner {
             for cell in line {
@@ -588,18 +610,21 @@ impl Grid {
         }
     }
 
-    #[inline]
     /// Set cell heat at position to desire value
+    #[inline]
+    #[rune::function(keep)]
     pub fn set_heat(&mut self, x: usize, y: usize, heat: u8) {
         self.inner.get_mut(y).unwrap()[x].heat = heat;
     }
 
     /// Set cell heat under cursor to desired value
+    #[rune::function(keep)]
     pub fn set_current_heat(&mut self, heat: u8) {
         let (x, y) = self.cursor;
         self.set_heat(x, y, heat);
     }
 
+    #[rune::function(keep)]
     pub fn reduce_heat(&mut self, amount: u8) {
         for line in &mut self.inner {
             for cell in line {
@@ -608,6 +633,7 @@ impl Grid {
         }
     }
 
+    #[rune::function(keep)]
     pub fn clear_heat(&mut self) {
         for line in &mut self.inner {
             for cell in line {
@@ -617,6 +643,7 @@ impl Grid {
     }
 
     /// Dump grid contents as a string.
+    #[rune::function(keep)]
     pub fn dump(&self) -> String {
         let mut res = String::new();
 
@@ -636,8 +663,42 @@ impl Grid {
         res
     }
 
+    #[rune::function(keep)]
     pub fn check_bounds(&self, (x, y): (usize, usize)) -> bool {
         x < self.width && y < self.height
+    }
+
+    pub fn export_rune_api(mut module: rune::Module) -> Result<Module, ContextError> {
+        module.function_meta(Grid::load_values__meta)?;
+        module.function_meta(Grid::get__meta)?;
+        module.function_meta(Grid::pan__meta)?;
+        module.function_meta(Grid::set__meta)?;
+        module.function_meta(Grid::size__meta)?;
+        module.function_meta(Grid::dump__meta)?;
+        module.function_meta(Grid::clear__meta)?;
+        module.function_meta(Grid::set_heat__meta)?;
+        module.function_meta(Grid::set_cursor__meta)?;
+        module.function_meta(Grid::get_cursor__meta)?;
+        module.function_meta(Grid::clear_heat__meta)?;
+        module.function_meta(Grid::move_cursor__meta)?;
+        module.function_meta(Grid::get_current__meta)?;
+        module.function_meta(Grid::set_current__meta)?;
+        module.function_meta(Grid::reduce_heat__meta)?;
+        module.function_meta(Grid::clear_values__meta)?;
+        module.function_meta(Grid::check_bounds__meta)?;
+        // TODO: find ways to add pre/append line functions
+        module.function_meta(Grid::append_column__meta)?;
+        module.function_meta(Grid::prepend_column__meta)?;
+        module.function_meta(Grid::get_cursor_dir__meta)?;
+        module.function_meta(Grid::set_cursor_dir__meta)?;
+        module.function_meta(Grid::get_breakpoints__meta)?;
+        module.function_meta(Grid::load_breakpoints__meta)?;
+        module.function_meta(Grid::set_current_heat__meta)?;
+        module.function_meta(Grid::toggle_breakpoint__meta)?;
+        module.function_meta(Grid::clear_breakpoints__meta)?;
+        module.function_meta(Grid::toggle_current_breakpoint__meta)?;
+
+        Ok(module)
     }
 }
 

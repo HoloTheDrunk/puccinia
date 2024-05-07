@@ -1,3 +1,5 @@
+use rune::{ContextError, Module};
+
 use super::{
     popup::{Notification, Tooltip},
     ArgType, Keybindings,
@@ -119,6 +121,7 @@ pub struct State {
 }
 
 impl State {
+    #[rune::function(keep)]
     pub fn push_history(&mut self) {
         let mut cgrid = self.grid.clone();
         cgrid.trim();
@@ -137,12 +140,20 @@ impl State {
         self.history.inner.push_back(dump);
     }
 
+    #[rune::function(keep)]
     pub fn load_history(&mut self, index: usize) -> bool {
         self.history
             .inner
             .get((self.history.inner.len() - index).saturating_sub(1))
             .map(|string| self.grid.load_values(string.clone()))
             .is_some()
+    }
+
+    pub fn export_rune_api(mut module: Module) -> Result<Module, ContextError> {
+        module.function_meta(State::push_history__meta)?;
+        module.function_meta(State::load_history__meta)?;
+
+        Ok(module)
     }
 }
 

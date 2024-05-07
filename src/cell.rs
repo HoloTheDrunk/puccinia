@@ -14,9 +14,12 @@ use {
 #[derive(Clone, Debug, Default, Copy, Any)]
 pub struct Cell {
     /// The content of the cell.
+    #[rune(get, set)]
     pub value: CellValue,
     /// Heat represents how recently the cell was last "visited" by a cursor.
+    #[rune(get, set)]
     pub heat: u8,
+    #[rune(get, set)]
     pub is_breakpoint: bool,
 }
 

@@ -24,6 +24,8 @@ use ratatui::{
     widgets::BorderType,
 };
 
+use crate::cell::{Cell, CellValue};
+
 use self::popup::{Notification, NotificationContent, Tooltip};
 
 use {
@@ -272,16 +274,19 @@ fn build_command_api_module() -> Result<Module, ContextError> {
         }
     }
 
-    // macro_rules! export_functions {
-    //     ($($fn:ident),* $(,)?) => {
-    //         $(module.function(stringify!($fn), $fn).build()?;)*
-    //     }
-    // }
+    macro_rules! export_apis {
+        ($($ty:ty),* $(,)?) => {
+            Ok(module)
+                $(.and_then(<$ty>::export_rune_api))*
+        }
+    }
 
     export_types! {
         State,
         Config,
         Grid,
+        Cell,
+        CellValue,
         GridHistory,
         RuneCommandError,
         ArgType,
@@ -290,10 +295,10 @@ fn build_command_api_module() -> Result<Module, ContextError> {
         InputMode,
     };
 
-    // TODO: Figure out how to do this without undefining the Rust version
-    // module.function_meta(Grid::get)?;
-
-    Ok(module)
+    export_apis! {
+        State,
+        Grid
+    }
 }
 
 fn setup_terminal() -> std::io::Result<Terminal<CrosstermBackend<Stdout>>> {

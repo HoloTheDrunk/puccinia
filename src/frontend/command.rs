@@ -3,7 +3,7 @@ use self::config::CommandBindingArg;
 use super::prelude::*;
 
 use command::config::CommandBinding;
-use rune::{ToValue, Value};
+use rune::{alloc::try_format, ToValue, Value};
 
 use crate::grid::span2d;
 
@@ -299,9 +299,19 @@ impl From<CommandBinding> for Command {
                         .to_vm()
                         .call([name.as_str()], (&mut *state, args))
                     {
-                        Ok(result) => state.notifications.push(Notification::new(
-                            NotificationContent::CommandResult(format!("{result:?}")),
-                        )),
+                        Ok(result) => {
+                            let ty = format!(
+                                "{}",
+                                result.type_info().into_result().unwrap().to_string()
+                            );
+                            let result = rune::alloc::fmt::try_format(format_args!("{result:?}"))
+                                .map(|s| s.to_string())
+                                .unwrap_or("Failed to format rune result".to_owned());
+
+                            state.notifications.push(Notification::new(
+                                NotificationContent::CommandResult(format!("{ty}: {result}")),
+                            ))
+                        }
                         Err(err) => {
                             state.notifications.push(Notification::new(
                                 NotificationContent::RuneError(err.to_string()),
@@ -549,6 +559,7 @@ pub fn handle_command(
     let args = args
         .split(' ')
         .map(str::trim)
+        .filter(|s| !s.is_empty())
         .map(ToString::to_string)
         .collect::<Vec<String>>();
 

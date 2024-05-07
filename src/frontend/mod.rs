@@ -10,38 +10,29 @@ use std::{
     fmt::Debug,
     io::Stdout,
     path::Path,
-    sync::{
-        mpsc::{self, Receiver, Sender},
-        Arc,
-    },
+    sync::mpsc::{self, Receiver, Sender},
     time::{Duration, Instant},
 };
 
-use chrono::{DateTime, Local, Utc};
-use ratatui::{
-    style::Stylize,
-    symbols::{self, border, line},
-    text::{Line, Text},
-    widgets::BorderType,
-};
-
-use crate::cell::{Cell, CellValue};
-
-use self::popup::{Notification, NotificationContent, Tooltip};
-
 use {
-    crate::{cell::Direction, grid::Grid, logic},
     command::*,
     config::ConfigFile,
     connect::*,
     input::*,
+    popup::{Notification, NotificationContent, Tooltip},
     state::*,
+};
+
+use crate::{
+    cell::{Cell, CellValue, Direction},
+    grid::Grid,
+    logic,
 };
 
 use {
     ansi_to_tui::IntoText,
     arboard::Clipboard,
-    chrono::{Datelike as _, Timelike as _},
+    chrono::{Datelike as _, Local, Timelike as _},
     crossterm::{
         event::{DisableMouseCapture, EnableMouseCapture},
         execute,
@@ -51,7 +42,10 @@ use {
     ratatui::{
         backend::{Backend, CrosstermBackend},
         layout::{Margin, Rect},
+        style::Stylize,
         style::{Color, Style},
+        symbols::{border, line},
+        text::{Line, Text},
         widgets::Wrap,
         widgets::{Block, Borders, Paragraph},
         Frame, Terminal,

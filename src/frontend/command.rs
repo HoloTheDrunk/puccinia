@@ -368,7 +368,7 @@ pub fn init_commands(config: &Option<ConfigFile>, state: &mut State) -> Vec<Comm
             }],
             description: Some("Save the buffer to a given path".to_owned()),
             handler: Box::new(|args, _state, _interactions, sender| {
-                let path = args[0].trim();
+                let path = args.get(0).map(|s| s.as_str().trim()).unwrap_or("");
                 sender
                     .send(logic::Message::Write(
                         (!path.is_empty()).then(|| path.to_owned()),
@@ -386,13 +386,13 @@ pub fn init_commands(config: &Option<ConfigFile>, state: &mut State) -> Vec<Comm
                 description: Some("Destination path to save into".to_owned()),
             }],
             description: Some("Save the buffer and quit the program".to_owned()),
-            handler: Box::new(|args, _state, _interactions, sender| {
-                let path = args[0].trim();
-                sender
-                    .send(logic::Message::Write(
-                        (!path.is_empty()).then(|| path.to_owned()),
-                    ))
-                    .unwrap();
+            handler: Box::new(|args, _state, interactions, sender| {
+                (interactions
+                    .commands
+                    .iter()
+                    .find(|c| c.names.contains(&"w".to_owned()))
+                    .unwrap()
+                    .handler)(args, _state, interactions, sender)?;
                 Ok(true)
             }),
         },

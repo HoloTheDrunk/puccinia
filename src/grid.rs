@@ -204,7 +204,7 @@ impl StatefulWidget for Grid {
 
         let panned_height = self.height.saturating_sub(self.pan.1);
         let available_rows = area.height as usize - 2;
-        let used_rows = panned_height.min(available_rows) as u16;
+        let used_rows = panned_height.min(available_rows);
 
         let panned_width = self.width.saturating_sub(self.pan.0);
         // Divide by two to allow for one empty column between cells.
@@ -279,7 +279,7 @@ impl StatefulWidget for Grid {
         self.inner
             .iter()
             .skip(self.pan.1)
-            .take(used_rows as usize)
+            .take(used_rows)
             .map(|line| {
                 let mut spans = intersperse(
                     line.iter()
@@ -334,23 +334,38 @@ impl StatefulWidget for Grid {
         }
 
         let (cx, cy) = self.cursor;
-        let (px, py) = self.pan;
-        let (x, y) = (cx - px, cy - py);
-        let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
-        let blink = self.last_move.elapsed() < Duration::from_millis(1000)
-            || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
+        // Pan the grid to always have the cursor in view
+        let (mut px, mut py) = self.pan;
+        if cx < px {
+            px = cx;
+        } else if cx - px > used_columns {
+            px += (cx - px) - used_columns;
+        }
+        if cy < py {
+            py = cy;
+        } else if cy - py > used_rows {
+            py += (cy - py) - used_rows;
+        }
+        state.grid.pan = (px, py);
 
-        let cursor_color = Color::from(&state.mode);
-        let cursor_style = if blink {
-            Style::default().bg(cursor_color)
-        } else {
-            Style::default().fg(cursor_color)
-        };
+        if cx >= px && cy >= py {
+            let (x, y) = (cx - px, cy - py);
+            let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
+            let blink = self.last_move.elapsed() < Duration::from_millis(1000)
+                || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
-        buf.set_style(
-            Rect::new(x, y, 1, 1),
-            cursor_style.add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
-        );
+            let cursor_color = Color::from(&state.mode);
+            let cursor_style = if blink {
+                Style::default().bg(cursor_color)
+            } else {
+                Style::default().fg(cursor_color)
+            };
+
+            buf.set_style(
+                Rect::new(x, y, 1, 1),
+                cursor_style.add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
+            );
+        }
 
         // BreakPoint
         let bp_positions = self.get_breakpoints();
@@ -669,8 +684,6 @@ impl Grid {
         self.keep_cursor_in_bounds();
     }
 
-    // FIXME: shouldn't be altering the logical position of the cursor for visual reasons, that's
-    // retarded 1am me.
     fn keep_cursor_in_bounds(&mut self) {
         let (cx, cy) = self.cursor;
         let (px, py) = self.pan;

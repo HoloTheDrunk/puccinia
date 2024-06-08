@@ -322,13 +322,16 @@ impl From<Direction> for (i32, i32) {
             Direction::Down => (0, 1),
             Direction::Left => (-1, 0),
             Direction::Right => (1, 0),
-            Direction::Random => match (rand::random::<bool>(), rand::random::<bool>()) {
-                (false, false) => Direction::Down,
-                (false, true) => Direction::Up,
-                (true, false) => Direction::Left,
-                (true, true) => Direction::Right,
+            Direction::Random => {
+                match (rand::random::<bool>() as usize) << 1 + rand::random::<bool>() as usize {
+                    0x00 => Direction::Down,
+                    0x01 => Direction::Up,
+                    0x10 => Direction::Left,
+                    0x11 => Direction::Right,
+                    _ => unreachable!(),
+                }
+                .into()
             }
-            .into(),
         }
     }
 }

@@ -47,155 +47,6 @@ pub struct Grid {
     inner: VecDeque<VecDeque<Cell>>,
 }
 
-impl Grid {
-    // Don't touch this, it's a mess but it works.
-    // TODO: redo this entire function, it's completely unmaintainable
-    // fn render(self, area: Rect, buf: &mut ratatui::buffer::Buffer, state: &mut FState) {
-    //     let height = std::cmp::min(self.height + 1, area.height as usize - 2) as u16;
-    //
-    //     let default_style = Style::default().fg(Color::White).bg(Color::Reset);
-    //
-    //     let target_cell_count = (area.width as usize / 2 - 2 - self.pan.0).min(self.inner[0].len());
-    //     let clip_right = ((target_cell_count - self.pan.0) * 2 + 1) > area.width as usize;
-    //
-    //     let lid_length = (target_cell_count - self.pan.0) * 2 + 1 + (self.pan.0 != 0) as usize;
-    //     let lid = self.lids.to_string().repeat(lid_length);
-    //     let (mut top_lid, mut bot_lid) = (String::new(), String::new());
-    //
-    //     if self.pan.1 == 0 {
-    //         if self.pan.0 == 0 {
-    //             top_lid.push(self.corners.map(|arr| arr[0]).unwrap_or(' '));
-    //         }
-    //
-    //         top_lid.push_str(lid.as_ref());
-    //
-    //         if !clip_right {
-    //             top_lid.push(self.corners.map(|arr| arr[1]).unwrap_or(' '));
-    //         }
-    //     } else {
-    //         top_lid = format!(
-    //             "{}{}{}",
-    //             if self.pan.0 == 0 { self.sides } else { ' ' },
-    //             " ".repeat(lid_length - (self.pan.0 != 0) as usize).as_str(),
-    //             self.sides
-    //         );
-    //     }
-    //
-    //     if (self.height - self.pan.1) < area.height as usize {
-    //         if self.pan.0 == 0 {
-    //             bot_lid.push(self.corners.map(|arr| arr[2]).unwrap_or(' '));
-    //         }
-    //
-    //         bot_lid.push_str(lid.as_ref());
-    //
-    //         if !clip_right {
-    //             bot_lid.push(self.corners.map(|arr| arr[3]).unwrap_or(' '));
-    //         }
-    //     }
-    //
-    //     buf.set_string(area.left(), area.top(), top_lid.as_str(), default_style);
-    //
-    //     let left_side = Span::styled(
-    //         format!("{} ", if self.pan.0 == 0 { self.sides } else { ' ' }),
-    //         default_style,
-    //     );
-    //     let right_side = Span::styled(
-    //         format!(" {}", if !clip_right { self.sides } else { ' ' }),
-    //         default_style,
-    //     );
-    //
-    //     self.inner
-    //         .iter()
-    //         .skip(self.pan.1)
-    //         .take(area.height as usize - 2)
-    //         .map(|line| {
-    //             let mut spans = intersperse(
-    //                 line.iter()
-    //                     .skip(self.pan.0)
-    //                     .take(target_cell_count)
-    //                     .map(|cell| cell.to_span(&state.config)),
-    //                 Span::styled(" ", default_style),
-    //             )
-    //             .collect::<Vec<_>>();
-    //
-    //             let mut line = vec![left_side.clone()];
-    //             line.append(&mut spans);
-    //             line.push(right_side.clone());
-    //
-    //             Line::from(line)
-    //         })
-    //         .enumerate()
-    //         .for_each(|(index, line)| {
-    //             buf.set_line(
-    //                 area.left(),
-    //                 area.top() + index as u16 + 1,
-    //                 &line,
-    //                 line.width() as u16 + 2,
-    //             );
-    //         });
-    //
-    //     if (self.height - self.pan.1) < area.height as usize {
-    //         buf.set_string(
-    //             area.left(),
-    //             area.top() + height - self.pan.1 as u16,
-    //             bot_lid.as_str(),
-    //             default_style,
-    //         );
-    //     }
-    //
-    //     if let EditorMode::Visual(start, end) = state.mode {
-    //         let (start, end) = (
-    //             (
-    //                 area.left() + 2 + 2 * start.0.min(end.0) as u16,
-    //                 area.top() + 1 + start.1.min(end.1) as u16,
-    //             ),
-    //             (
-    //                 area.left() + 2 + 2 * end.0.max(start.0) as u16,
-    //                 area.top() + 1 + end.1.max(start.1) as u16,
-    //             ),
-    //         );
-    //
-    //         buf.set_style(
-    //             Rect::new(start.0, start.1, end.0 - start.0 + 1, end.1 - start.1 + 1),
-    //             Style::default().bg(Color::Cyan),
-    //         );
-    //     }
-    //
-    //     let (cx, cy) = self.cursor;
-    //     let (px, py) = self.pan;
-    //     let (x, y) = (cx - px, cy - py);
-    //     let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
-    //     let blink = self.last_move.elapsed() < Duration::from_millis(1000)
-    //         || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
-    //
-    //     let cursor_color = Color::from(&state.mode);
-    //     let cursor_style = if blink {
-    //         Style::default().bg(cursor_color)
-    //     } else {
-    //         Style::default().fg(cursor_color)
-    //     };
-    //
-    //     buf.set_style(
-    //         Rect::new(x, y, 1, 1),
-    //         cursor_style.add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
-    //     );
-    //
-    //     // BreakPoint
-    //     let bp_positions = self.get_breakpoints();
-    //
-    //     for (x, y) in bp_positions {
-    //         let target = Rect {
-    //             x: area.left() + 2 + x as u16 * 2,
-    //             y: area.top() + 1 + y as u16,
-    //             width: 1,
-    //             height: 1,
-    //         };
-    //
-    //         buf.set_style(target, Style::default().bg(Color::Rgb(64, 64, 64)));
-    //     }
-    // }
-}
-
 impl StatefulWidget for Grid {
     type State = FState;
 
@@ -348,32 +199,32 @@ impl StatefulWidget for Grid {
         }
         state.grid.pan = (px, py);
 
-        if cx >= px && cy >= py {
-            let (x, y) = (cx - px, cy - py);
-            let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
-            let blink = self.last_move.elapsed() < Duration::from_millis(1000)
-                || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
+        let (x, y) = (cx - px, cy - py);
+        let (x, y) = (area.left() + 2 + 2 * x as u16, area.top() + 1 + y as u16);
+        let blink = self.last_move.elapsed() < Duration::from_millis(1000)
+            || Instant::now().duration_since(self.last_move).as_secs() % 2 == 0;
 
-            let cursor_color = Color::from(&state.mode);
-            let cursor_style = if blink {
-                Style::default().bg(cursor_color)
-            } else {
-                Style::default().fg(cursor_color)
-            };
+        let cursor_color = Color::from(&state.mode);
+        let cursor_style = if blink {
+            Style::default().bg(cursor_color)
+        } else {
+            Style::default().fg(cursor_color)
+        };
 
-            buf.set_style(
-                Rect::new(x, y, 1, 1),
-                cursor_style.add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
-            );
-        }
+        buf.set_style(
+            Rect::new(x, y, 1, 1),
+            cursor_style.add_modifier(Modifier::SLOW_BLINK | Modifier::BOLD),
+        );
 
-        // BreakPoint
-        let bp_positions = self.get_breakpoints();
+        // Breakpoint rendering
+        for (x, y) in self.get_breakpoints() {
+            if x < px || y < py || x - px > used_columns || y - py > used_rows {
+                continue;
+            }
 
-        for (x, y) in bp_positions {
             let target = Rect {
-                x: area.left() + 2 + 2 * x as u16,
-                y: area.top() + 1 + 1 * y as u16,
+                x: area.left() + 2 + 2 * (x - px) as u16,
+                y: area.top() + 1 + 1 * (y - py) as u16,
                 width: 1,
                 height: 1,
             };

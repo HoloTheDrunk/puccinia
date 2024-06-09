@@ -482,7 +482,19 @@ fn ui(f: &mut Frame, state: &mut State) {
                 state
                     .stack
                     .iter()
-                    .map(|v| v.to_string())
+                    .map(|v| {
+                        format!(
+                            "{v}{}",
+                            if (31..=126).contains(v) {
+                                format!(
+                                    " ({})",
+                                    char::from_u32(*v as u32).expect("Invalid ASCII char")
+                                )
+                            } else {
+                                "".to_owned()
+                            }
+                        )
+                    })
                     .rev()
                     .collect::<Vec<String>>()
                     .join("\n"),

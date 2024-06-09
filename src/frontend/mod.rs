@@ -227,9 +227,19 @@ fn wrapper<B: Backend>(
                         .chain(args.split_whitespace().map(str::to_owned))
                         .collect::<Vec<String>>();
 
-                    handle_set_command(args.as_slice(), &mut state, &interactions, sender, true)
-                        .err()
-                        .map(|err| format!("Failed to apply config: {err}"))
+                    let res = handle_set_command(
+                        args.as_slice(),
+                        &mut state,
+                        &interactions,
+                        sender,
+                        true,
+                    )
+                    .err()
+                    .map(|err| format!("Failed to apply config: {err}"));
+
+                    state.tooltip = None;
+
+                    res
                 })
                 .collect::<Vec<String>>();
 

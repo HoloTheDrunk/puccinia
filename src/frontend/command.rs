@@ -335,14 +335,17 @@ pub fn init_commands(config: &Option<ConfigFile>, state: &mut State) -> Vec<Comm
     let mut commands = Vec::new();
 
     if let Some(config) = config.as_ref().filter(|_| state.rune_state.is_some()) {
-        state
-            .notifications
-            .push(Notification::new(NotificationContent::Info(
-                "Loading Rune commands".to_owned(),
-            )));
+        let start_time = Instant::now();
         for command_binding in config.commands.iter().cloned() {
             commands.push(Command::from(command_binding));
         }
+        let time_taken = Instant::now() - start_time;
+        state
+            .notifications
+            .push(Notification::new(NotificationContent::Info(format!(
+                "Loaded Rune commands in {}ms",
+                time_taken.as_millis()
+            ))));
     }
 
     macro_rules! svec {

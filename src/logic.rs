@@ -3,7 +3,7 @@ use crate::{
         BinaryOperator, CellValue, Direction, IfDir, NullaryOperator, Operator, TernaryOperator,
         UnaryOperator,
     },
-    frontend::prelude::{InputMode, Message as FMessage, Tooltip},
+    frontend::prelude::{InputMode, Message as FMessage, NotificationContent, Tooltip},
     grid::Grid,
     Args,
 };
@@ -127,11 +127,11 @@ pub(crate) fn run(
                     Ok(_) => path = new_path,
                     err @ Err(_) => err?,
                 }
-                sender.send(FMessage::PopupToggle(Tooltip::Info(format!("Wrote grid to {path}"))))?;
+                sender.send(FMessage::SetTooltip(Tooltip::Info(format!("Wrote grid to {path}"))))?;
             }
             Message::Write(None) => {
                 std::fs::write(path.as_str(), state.grid.dump())?;
-                sender.send(FMessage::PopupToggle(Tooltip::Info(format!("Wrote grid to {path}"))))?;
+                sender.send(FMessage::SetTooltip(Tooltip::Info(format!("Wrote grid to {path}"))))?;
             }
             Message::Sync(grid) => {
                 state.grid = Grid::from(grid);
@@ -161,6 +161,23 @@ pub(crate) fn run(
                     loop {
                         let start = Instant::now();
 
+                        let msg = receiver.try_recv();
+                        // let msg = {
+                        //     let mut msg = receiver.try_recv();
+                        //     while let Err(_) = msg {
+                        //         msg = receiver.try_recv();
+                        //     }
+                        //     sender.send(FMessage::PushNotification(NotificationContent::Info(format!("msg: {msg:?}")))).expect("Couldn't send message recv ping");
+                        //     msg
+                        // };
+
+                        if let Ok(Message::RunningCommand(RunningCommand::Stop)) = msg
+                        {
+                            sender.send(FMessage::PushNotification(NotificationContent::Info("Stopping run".to_string()))).unwrap();
+                            sender.send(FMessage::LeaveRunningMode)?;
+                            break;
+                        }
+
                         match step(&sender, &receiver, &mut state, false)? {
                             RunStatus::Continue => (),
                             RunStatus::Breakpoint => break,
@@ -168,13 +185,6 @@ pub(crate) fn run(
                                 sender.send(FMessage::LeaveRunningMode)?;
                                 break;
                             }
-                        }
-
-                        if let Ok(Message::RunningCommand(RunningCommand::Stop)) =
-                            receiver.try_recv()
-                        {
-                            sender.send(FMessage::LeaveRunningMode)?;
-                            break;
                         }
 
                         if state.config.view_updates == ViewUpdates::All && state.config.step_ms > 10 {
@@ -279,8 +289,10 @@ fn step(
                             sender.send(FMessage::LeaveRunningMode)?;
                             return Ok(RunStatus::End);
                         }
-                        _ => {
-                            sender.send(FMessage::LogicError("Expected input".to_string()))?;
+                        msg => {
+                            sender.send(FMessage::LogicError(format!(
+                                "Expected input, got: {msg:?}"
+                            )))?;
                             sender.send(FMessage::LeaveRunningMode)?;
                             return Ok(RunStatus::End);
                         }

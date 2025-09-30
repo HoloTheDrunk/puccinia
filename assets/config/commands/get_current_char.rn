@@ -1,0 +1,3 @@
+pub fn get_current_char(state, args) {
+    state.grid.get_current()
+}

@@ -1,7 +1,5 @@
-use rune::{ContextError, Module};
-
 use super::{
-    popup::{Notification, Tooltip},
+    popup::{Notification, NotificationContent, Tooltip},
     ArgType, Keybindings,
 };
 
@@ -9,7 +7,12 @@ use crate::grid::Grid;
 
 use std::{collections::VecDeque, sync::Arc};
 
-use {arboard::Clipboard, ratatui::style::Color, rune::Any};
+use {
+    arboard::Clipboard,
+    itertools::Itertools,
+    ratatui::style::Color,
+    rune::{Any, ContextError, Module},
+};
 
 #[derive(Clone, Default, Debug, Any)]
 pub struct Config {
@@ -154,6 +157,34 @@ impl State {
         module.function_meta(State::load_history__meta)?;
 
         Ok(module)
+    }
+
+    #[rune::function(keep)]
+    pub fn merge_notifications(&mut self) {
+        let merged = self
+            .notifications
+            .iter()
+            .dedup_with_count()
+            .collect::<Vec<(usize, &Notification)>>();
+
+        let has_duplicates = merged.len() < self.notifications.len();
+        if has_duplicates {
+            self.notifications = merged
+                .into_iter()
+                .map(|(count, notif)| Notification {
+                    count,
+                    ..notif.clone()
+                })
+                .collect();
+            self.notifications
+                .push(Notification::new(NotificationContent::Info(
+                    "Merged notifications".to_string(),
+                )));
+        }
+        // self.notifications
+        //     .push(Notification::new(NotificationContent::Info(format!(
+        //         "Merging notifications: {has_duplicates}"
+        //     ))));
     }
 }
 

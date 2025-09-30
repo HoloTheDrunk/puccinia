@@ -9,7 +9,8 @@ pub enum Message {
     MoveCursor((usize, usize)),
     Load((Grid, Vec<i32>, Vec<(usize, usize)>)),
     LogicError(String),
-    PopupToggle(Tooltip),
+    PushNotification(NotificationContent),
+    SetTooltip(Tooltip),
     SetCell { x: usize, y: usize, v: char },
     LeaveRunningMode,
     Output(String),
@@ -35,10 +36,14 @@ pub fn try_receive_message(state: &mut State, receiver: &Receiver<Message>) -> F
             Message::LogicError(msg) => {
                 state.tooltip = Some(Tooltip::Error(msg));
             }
-            Message::PopupToggle(tooltip) => state.tooltip = Some(tooltip),
+            Message::PushNotification(content) => {
+                state.notifications.push(Notification::new(content))
+            }
+            Message::SetTooltip(tooltip) => state.tooltip = Some(tooltip),
             Message::SetCell { x, y, v } => state.grid.set(x, y, CellValue::from(v)),
             Message::LeaveRunningMode => {
                 state.mode = EditorMode::Normal;
+                state.grid.clear_heat();
                 if !state.config.live_output {
                     state.output = state.output_buffer.take().unwrap_or_else(String::new);
                 }

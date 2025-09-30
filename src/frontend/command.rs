@@ -253,13 +253,14 @@ impl From<CommandBinding> for Command {
                     if passed_args.len() != arg_count {
                         state
                             .notifications
-                            .push(Notification::new(NotificationContent::Error(Box::new(
-                                format!(
+                            .push(Notification::new(NotificationContent::Error(
+                                Error::Other(format!(
                                 "Invalid number of arguments, got {} expected {}: {passed_args:?}",
                                 passed_args.len(),
                                 arg_count
-                            ),
-                            ))));
+                            ))
+                                .into(),
+                            )));
                         return Ok(false);
                     }
 
@@ -286,10 +287,10 @@ impl From<CommandBinding> for Command {
                     let args = if args.iter().any(Option::is_none) {
                         state
                             .notifications
-                            .push(Notification::new(NotificationContent::Error(Box::new(
+                            .push(Notification::new(NotificationContent::Error(Error::Other(
                                 format!("Invalid arguments: {args:?}\n\
                                         (`None` indicates a parsing error, you should check the command's expected argument types)"),
-                            ))));
+                            ).into())));
                         return Ok(false);
                     } else {
                         args.into_iter().map(Option::unwrap).collect::<Vec<Value>>()
@@ -321,9 +322,9 @@ impl From<CommandBinding> for Command {
                 } else {
                     state
                         .notifications
-                        .push(Notification::new(NotificationContent::Error(Box::new(
-                            "Runes not loaded",
-                        ))));
+                        .push(Notification::new(NotificationContent::Error(
+                            Error::Other("Runes not loaded".to_owned()).into(),
+                        )));
                 }
                 Ok(false)
             }),

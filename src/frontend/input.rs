@@ -426,8 +426,7 @@ pub fn handle_events_running_mode(
 ) -> FrontendResult<()> {
     map_binding!(event, state, match {
         stop_run | escape => {
-            state.mode = EditorMode::Normal;
-            state.grid.clear_heat();
+            state.notifications.push(Notification::new(NotificationContent::Info("Sending stop".to_owned())));
             sender.send(logic::Message::RunningCommand(logic::RunningCommand::Stop))?;
         },
         step => {

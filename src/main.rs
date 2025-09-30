@@ -47,7 +47,7 @@ fn join_handler<T>(handler: JoinHandle<T>) -> Result<()> {
         if let Some(err) = err.downcast_ref::<logic::Error>() {
             return Err(err.clone().into());
         } else {
-            bail!("Unhandled logic error type");
+            bail!("Unhandled logic error type {err:?}");
         }
     }
 

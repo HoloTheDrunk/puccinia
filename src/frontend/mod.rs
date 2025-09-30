@@ -73,6 +73,8 @@ pub enum Error {
     Clipboard(#[from] arboard::Error),
     #[error("Input error: `{1}` is not {0:?}")]
     Input(InputMode, String),
+    #[error("Error: `{0}")]
+    Other(String),
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -253,9 +255,9 @@ fn wrapper<B: Backend>(
             for error in errors {
                 state
                     .notifications
-                    .push(Notification::new(NotificationContent::Error(Box::new(
-                        error,
-                    ))));
+                    .push(Notification::new(NotificationContent::Error(
+                        Error::Other(error).into(),
+                    )));
             }
         }
         None => state
@@ -359,7 +361,16 @@ fn main_loop<B: Backend>(
 
         last_frame = Instant::now();
 
-        let stop = handle_events(state, &interactions, sender)?;
+        let stop = match handle_events(state, &interactions, sender) {
+            Ok(stop) => stop,
+            Err(err) => {
+                state
+                    .notifications
+                    .push(Notification::new(NotificationContent::Error(err.into())));
+                false
+            }
+        };
+        state.merge_notifications();
 
         connect::try_receive_message(state, receiver)?;
 
@@ -604,6 +615,7 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
     let mut cum_height = 0; // °u°
     let now = Local::now();
     for Notification {
+        count,
         created_at,
         content,
     } in state
@@ -619,22 +631,25 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
         let (title, content, border_style, style) = match content {
             NotificationContent::Info(string) => (
                 "Info",
-                string.as_str(),
+                string.to_string(),
                 Style::reset().fg(Color::Green),
                 Style::reset(),
             ),
             NotificationContent::CommandResult(result) => (
                 "Command result",
-                result.as_str(),
+                result.to_string(),
                 Style::reset().fg(Color::LightGreen),
                 Style::reset(),
             ),
-            NotificationContent::RuneError(err) => {
-                ("Rune Error", err.as_str(), Style::reset(), Style::reset())
-            }
+            NotificationContent::RuneError(err) => (
+                "Rune Error",
+                err.to_string(),
+                Style::reset(),
+                Style::reset(),
+            ),
             NotificationContent::Error(err) => (
                 "Error",
-                (**err).as_ref(),
+                (**err).to_string(),
                 Style::reset().fg(Color::Red),
                 Style::reset().fg(Color::Red),
             ),
@@ -651,7 +666,7 @@ fn render_notifications(frame: &mut Frame, grid_area: Rect, state: &mut State) {
             .unwrap_or(max_width as usize)
             // TODO: hard wrap lines like for tooltips
             // .min(max_width as usize) as u16;
-            .max(title.len() + 2)
+            .max(title.len() + 2 + (*count > 1) as usize * 4)
             .min(grid_area.width as usize) as u16;
 
         let total_height = text.height().min(max_height as usize) as u16 + 2;
